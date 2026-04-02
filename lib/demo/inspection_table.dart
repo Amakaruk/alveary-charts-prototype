@@ -48,11 +48,9 @@ class InspectionTable extends StatelessWidget {
               itemBuilder: (context, i) {
                 final log = logs[i];
                 final isActive = _isSameDay(log.date, centreDate);
-                final delta = controller.cpsDeltaAfterDate(log.date);
                 return _InspectionRow(
                   log: log,
                   isActive: isActive,
-                  delta: delta,
                   onTap: () => controller.scrollToDate(log.date),
                 );
               },
@@ -70,13 +68,11 @@ class InspectionTable extends StatelessWidget {
 class _InspectionRow extends StatelessWidget {
   final InspectionLog log;
   final bool isActive;
-  final double? delta;
   final VoidCallback onTap;
 
   const _InspectionRow({
     required this.log,
     required this.isActive,
-    required this.delta,
     required this.onTap,
   });
 
@@ -87,35 +83,33 @@ class _InspectionRow extends StatelessWidget {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         color: isActive ? kAccent.withValues(alpha: 0.08) : Colors.transparent,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding: const EdgeInsets.only(left: 16, top: 10, bottom: 10, right: 4),
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            // Type dot + date column
-            SizedBox(
-              width: 72,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _TypeDot(type: log.type),
-                  const SizedBox(height: 4),
-                  Text(
-                    DateFormat('MMM d\nyyyy').format(log.date),
-                    style: TextStyle(
-                      color: isActive ? kAccent : const Color(0x89FFFFFF),
-                      fontSize: 11,
-                      fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            // Leading: CPS badge
+            _CpsBadge(score: log.cps, isActive: isActive),
             const SizedBox(width: 12),
-            // Note + delta row
+            // Body: tag+date header / note
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  Row(
+                    children: [
+                      _TypeTag(type: log.type),
+                      const SizedBox(width: 8),
+                      Text(
+                        DateFormat('MMM d').format(log.date),
+                        style: TextStyle(
+                          color: isActive ? kAccent : const Color(0x89FFFFFF),
+                          fontSize: 11,
+                          fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 3),
                   Text(
                     log.note,
                     maxLines: 2,
@@ -126,26 +120,165 @@ class _InspectionRow extends StatelessWidget {
                       height: 1.4,
                     ),
                   ),
-                  if (delta != null) ...[
-                    const SizedBox(height: 5),
-                    _DeltaBadge(delta: delta!),
-                  ],
                 ],
               ),
             ),
-            const SizedBox(width: 12),
-            // CPS badge
-            _CpsBadge(score: log.cps, isActive: isActive),
+            // Trailing: chevron opens detail sheet
+            IconButton(
+              icon: const Icon(
+                Icons.expand_more,
+                color: Color(0x61FFFFFF),
+                size: 20,
+              ),
+              onPressed: () => _showDetailSheet(context),
+            ),
           ],
         ),
       ),
     );
   }
+
+  void _showDetailSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _LogDetailSheet(log: log),
+    );
+  }
 }
 
-class _TypeDot extends StatelessWidget {
+// ---------------------------------------------------------------------------
+// Bottom sheet
+// ---------------------------------------------------------------------------
+
+class _LogDetailSheet extends StatelessWidget {
+  final InspectionLog log;
+  const _LogDetailSheet({required this.log});
+
+  @override
+  Widget build(BuildContext context) {
+    final typeColor = switch (log.type) {
+      LogType.inspection => kMarkerInspection,
+      LogType.weather    => kMarkerWeather,
+      LogType.seasonal   => kMarkerSeasonal,
+    };
+    final typeLabel = switch (log.type) {
+      LogType.inspection => 'Inspection',
+      LogType.weather    => 'Weather',
+      LogType.seasonal   => 'Seasonal',
+    };
+
+    return Container(
+      decoration: const BoxDecoration(
+        color: Color(0xFF1E2530),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Drag handle
+          Center(
+            child: Container(
+              margin: const EdgeInsets.only(top: 12, bottom: 8),
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: const Color(0x33FFFFFF),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          // Header
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 8, 16),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                // Type dot + label
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: typeColor,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      typeLabel,
+                      style: TextStyle(
+                        color: typeColor,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  DateFormat('MMM d').format(log.date),
+                  style: const TextStyle(
+                    color: Color(0x89FFFFFF),
+                    fontSize: 12,
+                  ),
+                ),
+                const Spacer(),
+                // CPS badge
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: kAccent.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: kAccent.withValues(alpha: 0.35),
+                      width: 1,
+                    ),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        log.cps.toStringAsFixed(1),
+                        style: const TextStyle(
+                          color: kAccent,
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const Text(
+                        'CPS',
+                        style: TextStyle(color: Color(0x89FFFFFF), fontSize: 9),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 4),
+                IconButton(
+                  icon: const Icon(Icons.close, color: Color(0x89FFFFFF), size: 20),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ],
+            ),
+          ),
+          // Placeholder body
+          const SizedBox(height: 200),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+
+class _TypeTag extends StatelessWidget {
   final LogType type;
-  const _TypeDot({required this.type});
+  const _TypeTag({required this.type});
 
   @override
   Widget build(BuildContext context) {
@@ -160,6 +293,7 @@ class _TypeDot extends StatelessWidget {
       LogType.seasonal   => 'Seasonal',
     };
     return Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
         Container(
           width: 6,
@@ -170,33 +304,6 @@ class _TypeDot extends StatelessWidget {
         Text(
           label,
           style: TextStyle(color: color.withValues(alpha: 0.8), fontSize: 9),
-        ),
-      ],
-    );
-  }
-}
-
-class _DeltaBadge extends StatelessWidget {
-  final double delta;
-
-  const _DeltaBadge({required this.delta});
-
-  @override
-  Widget build(BuildContext context) {
-    final isPositive = delta >= 0;
-    final color = isPositive ? kAccent : const Color(0xFFFF6B6B);
-    final arrow = isPositive ? '▲' : '▼';
-    final sign = isPositive ? '+' : '';
-
-    return Row(
-      children: [
-        Text(
-          '$arrow $sign${delta.toStringAsFixed(1)} pts / 7d',
-          style: TextStyle(
-            color: color.withValues(alpha: 0.8),
-            fontSize: 10,
-            fontWeight: FontWeight.w500,
-          ),
         ),
       ],
     );

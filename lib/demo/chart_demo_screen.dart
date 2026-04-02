@@ -16,7 +16,7 @@ class ChartDemoScreen extends StatefulWidget {
 }
 
 class _ChartDemoScreenState extends State<ChartDemoScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late final ChartViewportController _controller;
 
   @override

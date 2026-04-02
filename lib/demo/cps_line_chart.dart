@@ -24,6 +24,7 @@ class CpsLineChart extends StatefulWidget {
 class _CpsLineChartState extends State<CpsLineChart> {
   double _chartWidth = 0;
   double _lastTickBucket = -1;
+  int? _tooltipSpotIndex;
 
   @override
   void initState() {
@@ -48,6 +49,17 @@ class _CpsLineChartState extends State<CpsLineChart> {
       _lastTickBucket = bucket;
       Vibration.vibrate(duration: 15, amplitude: 80);
     }
+  }
+
+  void _onTapUp(TapUpDetails details) {
+    final c = widget.controller;
+    final spots = c.visibleSpots;
+    if (spots.isEmpty) return;
+    final fraction = (details.localPosition.dx / _chartWidth).clamp(0.0, 1.0);
+    final idx = (fraction * c.visiblePoints).round().clamp(0, spots.length - 1);
+    setState(() {
+      _tooltipSpotIndex = _tooltipSpotIndex == idx ? null : idx;
+    });
   }
 
   // Returns a label string if this x position should show a label, else null.
@@ -82,8 +94,11 @@ class _CpsLineChartState extends State<CpsLineChart> {
       builder: (context, constraints) {
         _chartWidth = constraints.maxWidth;
         return GestureDetector(
-          onHorizontalDragStart: (d) =>
-              widget.controller.onDragStart(d.localPosition.dx),
+          onTapUp: _onTapUp,
+          onHorizontalDragStart: (d) {
+            setState(() => _tooltipSpotIndex = null);
+            widget.controller.onDragStart(d.localPosition.dx);
+          },
           onHorizontalDragUpdate: (d) => widget.controller
               .onDragUpdate(d.localPosition.dx, _chartWidth),
           onHorizontalDragEnd: (d) => widget.controller.onDragEnd(
@@ -92,8 +107,19 @@ class _CpsLineChartState extends State<CpsLineChart> {
           ),
           child: ListenableBuilder(
             listenable: widget.controller,
-            builder: (context, _) =>
-                _buildChart(widget.controller, widget.logs),
+            builder: (context, _) {
+              final overscroll = widget.controller.overscrollPixels;
+              Widget chart = _buildChart(widget.controller, widget.logs);
+              if (overscroll > 0) {
+                chart = ClipRect(
+                  child: Transform.translate(
+                    offset: Offset(-overscroll, 0),
+                    child: chart,
+                  ),
+                );
+              }
+              return chart;
+            },
           ),
         );
       },
@@ -105,6 +131,26 @@ class _CpsLineChartState extends State<CpsLineChart> {
     final isIntraday = c.zoom == ZoomLevel.intraday;
     final lastX = spots.isNotEmpty ? spots.last.x : 0.0;
     final markers = c.visibleLogMarkers(logs);
+    final tipIdx = _tooltipSpotIndex;
+    final barData = LineChartBarData(
+      spots: spots,
+      isCurved: false,
+      color: kAccent,
+      barWidth: 2,
+      belowBarData: BarAreaData(
+        show: true,
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            kAccent.withValues(alpha: 0.22),
+            kAccent.withValues(alpha: 0.0),
+          ],
+        ),
+      ),
+      dotData: const FlDotData(show: false),
+      showingIndicators: tipIdx != null ? [tipIdx] : [],
+    );
 
     return LineChart(
       duration: Duration.zero,
@@ -114,31 +160,9 @@ class _CpsLineChartState extends State<CpsLineChart> {
         minY: 0,
         maxY: 100,
         clipData: const FlClipData.all(),
-        lineBarsData: [
-          LineChartBarData(
-            spots: spots,
-            isCurved: true,
-            curveSmoothness: 0.3,
-            color: kAccent,
-            barWidth: 2,
-            belowBarData: BarAreaData(
-              show: true,
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  kAccent.withValues(alpha: 0.22),
-                  kAccent.withValues(alpha: 0.0),
-                ],
-              ),
-            ),
-            dotData: const FlDotData(show: false),
-          ),
-        ],
-        // No grid lines — 0 and 100 anchors handled via extraLinesData labels
+        lineBarsData: [barData],
         gridData: const FlGridData(show: false),
         borderData: FlBorderData(show: false),
-        // No Y-axis — chart runs edge to edge
         titlesData: FlTitlesData(
           leftTitles: const AxisTitles(
               sideTitles: SideTitles(showTitles: false, reservedSize: 0)),
@@ -168,7 +192,7 @@ class _CpsLineChartState extends State<CpsLineChart> {
                     label,
                     textAlign: TextAlign.center,
                     style: const TextStyle(
-                        color: Color(0x89FFFFFF), fontSize: 9),
+                        color: Color(0x89FFFFFF), fontSize: 11),
                   ),
                 );
               },
@@ -177,7 +201,6 @@ class _CpsLineChartState extends State<CpsLineChart> {
         ),
         extraLinesData: ExtraLinesData(
           horizontalLines: [
-            // Subtle "100" anchor at top
             HorizontalLine(
               y: 98,
               color: Colors.transparent,
@@ -192,7 +215,6 @@ class _CpsLineChartState extends State<CpsLineChart> {
                 labelResolver: (_) => '100',
               ),
             ),
-            // Subtle "0" anchor at bottom
             HorizontalLine(
               y: 2,
               color: Colors.transparent,
@@ -208,7 +230,6 @@ class _CpsLineChartState extends State<CpsLineChart> {
               ),
             ),
           ],
-          // Log entry markers — color-coded by type
           verticalLines: markers.map((m) {
             final color = switch (m.log.type) {
               LogType.inspection => kMarkerInspection,
@@ -236,17 +257,34 @@ class _CpsLineChartState extends State<CpsLineChart> {
           }).toList(),
         ),
         lineTouchData: LineTouchData(
+          handleBuiltInTouches: false,
           touchTooltipData: LineTouchTooltipData(
             getTooltipColor: (_) => kSurface,
-            getTooltipItems: (spots) => spots
-                .map((s) => LineTooltipItem(
-                      s.y.toStringAsFixed(1),
-                      const TextStyle(
-                          color: kAccent, fontWeight: FontWeight.bold),
-                    ))
-                .toList(),
+            getTooltipItems: (touchedSpots) => touchedSpots.map((s) {
+              final absIdx = c.viewportStart.floor() + s.spotIndex;
+              final ts = c.timestampAt(absIdx);
+              return LineTooltipItem(
+                '${s.y.toStringAsFixed(1)}\n',
+                const TextStyle(
+                    color: kAccent,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13),
+                children: [
+                  TextSpan(
+                    text: DateFormat('MMM d').format(ts),
+                    style: const TextStyle(
+                        color: Color(0x89FFFFFF),
+                        fontSize: 10,
+                        fontWeight: FontWeight.normal),
+                  ),
+                ],
+              );
+            }).toList(),
           ),
         ),
+        showingTooltipIndicators: tipIdx != null
+            ? [ShowingTooltipIndicators([LineBarSpot(barData, 0, spots[tipIdx])])]
+            : [],
         rangeAnnotations: isIntraday
             ? RangeAnnotations(
                 verticalRangeAnnotations: [
@@ -268,9 +306,9 @@ class _CpsLineChartState extends State<CpsLineChart> {
   }
 
   double _xReservedSize(ChartViewportController c) => switch (c.zoom) {
-        ZoomLevel.intraday => 22,
-        ZoomLevel.weekly   => 68,
-        ZoomLevel.monthly  => 36,
+        ZoomLevel.intraday => 26,
+        ZoomLevel.weekly   => 76,
+        ZoomLevel.monthly  => 42,
       };
 }
 
@@ -299,7 +337,7 @@ class _WeatherAxisLabel extends StatelessWidget {
           Text(
             dateLabel,
             textAlign: TextAlign.center,
-            style: const TextStyle(color: Color(0x89FFFFFF), fontSize: 9),
+            style: const TextStyle(color: Color(0x89FFFFFF), fontSize: 11),
           ),
           const SizedBox(height: 3),
           Text(

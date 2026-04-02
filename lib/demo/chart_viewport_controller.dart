@@ -35,10 +35,20 @@ class ChartViewportController extends ChangeNotifier {
       maxViewportStart == 0 ? 1.0 : _viewportStart / maxViewportStart;
 
   // -------------------------------------------------------------------------
+  // Overscroll (right-edge rubber band)
+  // -------------------------------------------------------------------------
+  double _overscrollPixels = 0;
+
+  /// Pixels the chart should be shifted left to show rubber-band resistance.
+  double get overscrollPixels => _overscrollPixels;
+
+  // -------------------------------------------------------------------------
   // Animation
   // -------------------------------------------------------------------------
   late final AnimationController _animController;
+  late final AnimationController _bounceController;
   Animation<double>? _animation;
+  Animation<double>? _bounceAnimation;
 
   ChartViewportController({required TickerProvider vsync}) {
     _intradayData = generateIntradayData();
@@ -51,11 +61,16 @@ class ChartViewportController extends ChangeNotifier {
       vsync: vsync,
       duration: const Duration(milliseconds: 400),
     );
+    _bounceController = AnimationController(
+      vsync: vsync,
+      duration: const Duration(milliseconds: 350),
+    );
   }
 
   @override
   void dispose() {
     _animController.dispose();
+    _bounceController.dispose();
     super.dispose();
   }
 
@@ -105,20 +120,38 @@ class ChartViewportController extends ChangeNotifier {
 
   void onDragStart(double localX) {
     _animController.stop();
+    _bounceController.stop();
+    _overscrollPixels = 0;
     _dragStartViewport = _viewportStart;
     _dragStartX = localX;
+    notifyListeners();
   }
 
   void onDragUpdate(double localX, double chartWidth) {
     if (chartWidth == 0) return;
     final pixelDelta = _dragStartX - localX;
-    final dataDelta = pixelDelta / chartWidth * _visiblePoints;
-    _viewportStart =
-        (_dragStartViewport + dataDelta).clamp(0, maxViewportStart);
+    // 1.5× sensitivity multiplier
+    final dataDelta = pixelDelta / chartWidth * _visiblePoints * 1.5;
+    final rawTarget = _dragStartViewport + dataDelta;
+
+    if (rawTarget > maxViewportStart) {
+      // Rubber-band: allow overscroll with 0.3 damping factor
+      final excessData = rawTarget - maxViewportStart;
+      final excessPx = excessData / _visiblePoints * chartWidth;
+      _overscrollPixels = excessPx * 0.3;
+      _viewportStart = maxViewportStart;
+    } else {
+      _overscrollPixels = 0;
+      _viewportStart = rawTarget.clamp(0.0, maxViewportStart);
+    }
     notifyListeners();
   }
 
   void onDragEnd(double velocityPx, double chartWidth) {
+    if (_overscrollPixels > 0) {
+      _snapOverscrollBack();
+      return;
+    }
     if (chartWidth == 0) return;
     final dataDelta = -(velocityPx / chartWidth) * _visiblePoints * 0.35;
     final target = (_viewportStart + dataDelta).clamp(0.0, maxViewportStart);
@@ -136,6 +169,8 @@ class ChartViewportController extends ChangeNotifier {
   // -------------------------------------------------------------------------
   void setZoom(ZoomLevel zoom) {
     if (_zoom == zoom) return;
+    _overscrollPixels = 0;
+    _bounceController.stop();
 
     // Preserve the date currently at the centre of the viewport.
     final centreDate = visibleCentreDate;
@@ -162,6 +197,9 @@ class ChartViewportController extends ChangeNotifier {
   // Scroll to a specific date (used by inspection table)
   // -------------------------------------------------------------------------
   void scrollToDate(DateTime date) {
+    _overscrollPixels = 0;
+    _bounceController.stop();
+
     // If we're in intraday mode, switch to weekly first.
     if (_zoom == ZoomLevel.intraday) {
       _zoom = ZoomLevel.weekly;
@@ -189,6 +227,19 @@ class ChartViewportController extends ChangeNotifier {
         notifyListeners();
       });
     _animController.forward(from: 0);
+  }
+
+  void _snapOverscrollBack() {
+    final start = _overscrollPixels;
+    _bounceController.stop();
+    _bounceAnimation =
+        Tween<double>(begin: start, end: 0).animate(
+      CurvedAnimation(parent: _bounceController, curve: Curves.easeOutCubic),
+    )..addListener(() {
+        _overscrollPixels = _bounceAnimation!.value;
+        notifyListeners();
+      });
+    _bounceController.forward(from: 0);
   }
 
   // -------------------------------------------------------------------------
