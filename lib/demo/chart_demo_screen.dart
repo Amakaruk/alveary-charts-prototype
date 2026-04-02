@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'app_colors.dart';
 import 'chart_viewport_controller.dart';
 import 'cps_line_chart.dart';
@@ -35,102 +34,14 @@ class _ChartDemoScreenState extends State<ChartDemoScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: kBg,
-      appBar: _buildAppBar(context),
       body: SafeArea(
-        top: false,
         child: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const SizedBox(height: 12),
-              // Timescale selector — right-aligned
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: ListenableBuilder(
-                    listenable: _controller,
-                    builder: (context, _) => ZoomToggle(
-                      selected: _controller.zoom,
-                      onChanged: _controller.setZoom,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              // Chart + overlay
-              ListenableBuilder(
-                listenable: _controller,
-                builder: (context, _) {
-                  final isWeekly = _controller.zoom == ZoomLevel.weekly;
-                  // Taller chart in weekly to give weather labels breathing room
-                  final chartHeight = isWeekly ? 300.0 : 280.0;
-                  return SizedBox(
-                    height: chartHeight,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      child: Stack(
-                        children: [
-                          CpsLineChart(
-                            controller: _controller,
-                            logs: mockInspectionLogs,
-                          ),
-                          if (_controller.zoom == ZoomLevel.intraday)
-                            const Positioned.fill(
-                              child: IgnorePointer(child: NightOverlay()),
-                            ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 12),
-              // Nav row
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: ListenableBuilder(
-                  listenable: _controller,
-                  builder: (context, _) => Row(
-                    children: [
-                      _NavButton(
-                        icon: Icons.chevron_left,
-                        onTap: _controller.viewportStart <= 0
-                            ? null
-                            : () {
-                                HapticFeedback.lightImpact();
-                                _controller.shiftLeft();
-                              },
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(2),
-                          child: LinearProgressIndicator(
-                            value: _controller.progress,
-                            minHeight: 3,
-                            backgroundColor: const Color(0x1AFFFFFF),
-                            valueColor:
-                                const AlwaysStoppedAnimation<Color>(kAccent),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      _NavButton(
-                        icon: Icons.chevron_right,
-                        onTap: _controller.viewportStart >=
-                                _controller.maxViewportStart
-                            ? null
-                            : () {
-                                HapticFeedback.lightImpact();
-                                _controller.shiftRight();
-                              },
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              // Inspection log table
+              _buildHeader(),
+              _buildChart(),
+              const Divider(color: Color(0x14FFFFFF), height: 1),
               InspectionTable(
                 controller: _controller,
                 logs: mockInspectionLogs,
@@ -143,63 +54,169 @@ class _ChartDemoScreenState extends State<ChartDemoScreen>
     );
   }
 
-  AppBar _buildAppBar(BuildContext context) {
-    return AppBar(
-      backgroundColor: kBg,
-      surfaceTintColor: Colors.transparent,
-      elevation: 0,
-      titleSpacing: 16,
-      title: ListenableBuilder(
-        listenable: _controller,
-        builder: (context, _) => Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Hive Alpha',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 17,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.1,
+  // ---------------------------------------------------------------------------
+  // Custom header — back | CPS block | zoom toggle + menu
+  // ---------------------------------------------------------------------------
+  Widget _buildHeader() {
+    return ListenableBuilder(
+      listenable: _controller,
+      builder: (context, _) {
+        final delta = _controller.recentTrendDelta;
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(4, 6, 8, 12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // Back button
+              IconButton(
+                icon: const Icon(Icons.arrow_back,
+                    color: Colors.white, size: 22),
+                onPressed: () => Navigator.of(context).maybePop(),
               ),
-            ),
-            Text(
-              'Spring Apiary  ·  CPS ${_controller.latestCps.toStringAsFixed(1)}',
-              style: const TextStyle(
-                color: Color(0x89FFFFFF),
-                fontSize: 12,
-                fontWeight: FontWeight.w400,
+              // CPS block
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Spring Apiary',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.35),
+                        fontSize: 12,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                    const SizedBox(height: 1),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          _controller.latestCps.round().toString(),
+                          style: const TextStyle(
+                            color: kAccent,
+                            fontSize: 52,
+                            fontWeight: FontWeight.w800,
+                            height: 1.0,
+                            letterSpacing: -1,
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.only(left: 8, bottom: 5),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              Text(
+                                'CPS',
+                                style: TextStyle(
+                                  color: kAccent.withValues(alpha: 0.55),
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              if (delta != null) _TrendBadge(delta: delta),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        PopupMenuButton<_HiveAction>(
-          onSelected: _onHiveAction,
-          color: kSurface,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          icon: const Icon(Icons.more_vert, color: Colors.white),
-          itemBuilder: (context) => [
-            _menuItem(_HiveAction.edit, Icons.edit_outlined, 'Edit Hive Details'),
-            _menuItem(_HiveAction.addInspection, Icons.add_circle_outline, 'Add Inspection'),
-            const PopupMenuDivider(),
-            _menuItem(_HiveAction.move, Icons.swap_horiz, 'Move to Apiary'),
-            _menuItem(_HiveAction.duplicate, Icons.copy_outlined, 'Duplicate Hive'),
-            const PopupMenuDivider(),
-            _menuItem(_HiveAction.archive, Icons.archive_outlined, 'Archive Hive'),
-            _menuItem(
-              _HiveAction.delete,
-              Icons.delete_outline,
-              'Delete Hive',
-              color: const Color(0xFFFF6B6B),
-            ),
-          ],
-        ),
-      ],
+              // Zoom toggle
+              ZoomToggle(
+                selected: _controller.zoom,
+                onChanged: _controller.setZoom,
+              ),
+              // More menu
+              PopupMenuButton<_HiveAction>(
+                onSelected: _onHiveAction,
+                color: kSurface,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+                icon: const Icon(Icons.more_vert, color: Colors.white),
+                itemBuilder: (context) => [
+                  _menuItem(_HiveAction.edit, Icons.edit_outlined,
+                      'Edit Hive Details'),
+                  _menuItem(_HiveAction.addInspection,
+                      Icons.add_circle_outline, 'Add Inspection'),
+                  const PopupMenuDivider(),
+                  _menuItem(
+                      _HiveAction.move, Icons.swap_horiz, 'Move to Apiary'),
+                  _menuItem(_HiveAction.duplicate, Icons.copy_outlined,
+                      'Duplicate Hive'),
+                  const PopupMenuDivider(),
+                  _menuItem(_HiveAction.archive, Icons.archive_outlined,
+                      'Archive Hive'),
+                  _menuItem(
+                    _HiveAction.delete,
+                    Icons.delete_outline,
+                    'Delete Hive',
+                    color: const Color(0xFFFF6B6B),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // Chart — full bleed, progress bar overlaid above x-axis
+  // ---------------------------------------------------------------------------
+  Widget _buildChart() {
+    return ListenableBuilder(
+      listenable: _controller,
+      builder: (context, _) {
+        final isWeekly = _controller.zoom == ZoomLevel.weekly;
+        final chartHeight = isWeekly ? 280.0 : 240.0;
+        final xAxisHeight = switch (_controller.zoom) {
+          ZoomLevel.intraday => 26.0,
+          ZoomLevel.weekly   => 76.0,
+          ZoomLevel.monthly  => 42.0,
+        };
+        return SizedBox(
+          height: chartHeight,
+          child: Stack(
+            children: [
+              CpsLineChart(
+                controller: _controller,
+                logs: mockInspectionLogs,
+              ),
+              if (_controller.zoom == ZoomLevel.intraday)
+                const Positioned.fill(
+                  child: IgnorePointer(child: NightOverlay()),
+                ),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: xAxisHeight,
+                child: IgnorePointer(
+                  child: SizedBox(
+                    height: 2,
+                    child: LinearProgressIndicator(
+                      value: _controller.progress,
+                      backgroundColor: const Color(0x1AFFFFFF),
+                      valueColor:
+                          const AlwaysStoppedAnimation<Color>(kAccent),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Menu helpers
+  // ---------------------------------------------------------------------------
   PopupMenuItem<_HiveAction> _menuItem(
     _HiveAction action,
     IconData icon,
@@ -219,7 +236,6 @@ class _ChartDemoScreenState extends State<ChartDemoScreen>
   }
 
   void _onHiveAction(_HiveAction action) {
-    // Stub — wire to real actions in production
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(action.label),
@@ -230,6 +246,41 @@ class _ChartDemoScreenState extends State<ChartDemoScreen>
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Trend badge
+// ---------------------------------------------------------------------------
+
+class _TrendBadge extends StatelessWidget {
+  final double delta;
+  const _TrendBadge({required this.delta});
+
+  @override
+  Widget build(BuildContext context) {
+    final isPos = delta >= 0;
+    final color = isPos ? const Color(0xFF4ADE80) : const Color(0xFFFF6B6B);
+    final sign = isPos ? '+' : '';
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(isPos ? Icons.north : Icons.south, color: color, size: 10),
+        const SizedBox(width: 2),
+        Text(
+          '$sign${delta.toStringAsFixed(1)}  ·  7d',
+          style: TextStyle(
+            color: color,
+            fontSize: 11,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Hive action menu
+// ---------------------------------------------------------------------------
 
 enum _HiveAction {
   edit,
@@ -247,35 +298,4 @@ enum _HiveAction {
         _HiveAction.archive       => 'Archive Hive',
         _HiveAction.delete        => 'Delete Hive',
       };
-}
-
-class _NavButton extends StatelessWidget {
-  final IconData icon;
-  final VoidCallback? onTap;
-
-  const _NavButton({required this.icon, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final enabled = onTap != null;
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        width: 36,
-        height: 36,
-        decoration: BoxDecoration(
-          border: Border.all(
-            color: enabled ? const Color(0x33FFFFFF) : const Color(0x11FFFFFF),
-          ),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Icon(
-          icon,
-          color: enabled ? Colors.white : const Color(0x33FFFFFF),
-          size: 20,
-        ),
-      ),
-    );
-  }
 }

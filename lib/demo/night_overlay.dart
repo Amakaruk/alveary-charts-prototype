@@ -38,7 +38,7 @@ class NightOverlay extends StatelessWidget {
                 alignment: Alignment.centerRight,
                 child: const Padding(
                   padding: EdgeInsets.only(right: 4),
-                  child: Text('☀️', style: TextStyle(fontSize: 14)),
+                  child: Text('🌅', style: TextStyle(fontSize: 14)),
                 ),
               ),
             ),
@@ -59,23 +59,12 @@ class NightOverlay extends StatelessWidget {
                     ],
                   ),
                 ),
-                child: Stack(
-                  children: [
-                    const Align(
-                      alignment: Alignment.centerLeft,
-                      child: Padding(
-                        padding: EdgeInsets.only(left: 4),
-                        child: Text('☀️', style: TextStyle(fontSize: 14)),
-                      ),
-                    ),
-                    Align(
-                      alignment: Alignment.topCenter,
-                      child: Padding(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: Text(icon, style: const TextStyle(fontSize: 16)),
-                      ),
-                    ),
-                  ],
+                child: Align(
+                  alignment: Alignment.topCenter,
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(icon, style: const TextStyle(fontSize: 16)),
+                  ),
                 ),
               ),
             ),

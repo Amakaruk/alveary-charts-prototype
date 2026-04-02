@@ -31,43 +31,74 @@ List<CpsReading> generateIntradayData() {
   final rng = Random(42);
   final readings = <CpsReading>[];
   var time = DateTime(2024, 6, 15, 6, 30);
-  const baseline = 65.0;
+  const baseline = 84.0; // peak summer day
 
   while (time.isBefore(DateTime(2024, 6, 15, 20, 0))) {
-    final score = _scoreAt(time, baseline, rng);
+    final score = _intradayScore(time, baseline, rng);
     readings.add(CpsReading(timestamp: time, score: score));
     time = time.add(Duration(minutes: 25 + rng.nextInt(10) - 5));
   }
   return readings;
 }
 
+double _intradayScore(DateTime t, double baseline, Random rng) {
+  final hour = t.hour + t.minute / 60.0;
+  // Strong morning ramp, midday plateau, afternoon dip as foragers return
+  final morningPeak = 18 * exp(-pow(hour - 10.5, 2) / 6);
+  final afternoonDip = -14 * exp(-pow(hour - 15.5, 2) / 3);
+  final noise = (rng.nextDouble() - 0.5) * 10;
+  return (baseline + morningPeak + afternoonDip + noise).clamp(20.0, 98.0);
+}
+
 // ---------------------------------------------------------------------------
-// Daily averages — 180 days ending 2024-06-15, one point per day
+// Daily averages — 180 days starting Dec 19 2023, ending Jun 15 2024
+// Seasonal arc: winter low (~45) → spring buildup → summer peak (~84)
 // ---------------------------------------------------------------------------
 
 List<CpsReading> generateDailyAverages() {
   final readings = <CpsReading>[];
-  final endDate = DateTime(2024, 6, 15);
+  final startDate = DateTime(2023, 12, 19);
+  final rng = Random(42);
 
-  for (int d = 179; d >= 0; d--) {
-    final date = endDate.subtract(Duration(days: d));
-    final daySeed = date.year * 10000 + date.month * 100 + date.day;
-    final rng = Random(daySeed);
-    final dayOffset = (rng.nextDouble() - 0.5) * 8;
-    final baseline = 62.0 + dayOffset;
-    final noon = DateTime(date.year, date.month, date.day, 12, 0);
-    final score = _scoreAt(noon, baseline, rng).clamp(40.0, 90.0);
+  for (int d = 0; d < 180; d++) {
+    final date = startDate.add(Duration(days: d));
+    final t = d / 179.0; // 0 = Dec 19, 1 = Jun 15
+
+    // Seasonal arc: slow winter rise, steep spring, peak in June
+    final base = 44.0 + 40.0 * _seasonCurve(t);
+
+    // ~14-day undulation (foraging cycles, brood pulses) ±7
+    final undulation = 7.0 * sin(t * 14 * pi);
+
+    // Daily noise ±6
+    final noise = (rng.nextDouble() - 0.5) * 12;
+
+    // Narrative shocks matching the log events
+    final shock = _narrativeShock(date);
+
+    final score = (base + undulation + noise + shock).clamp(28.0, 95.0);
     readings.add(CpsReading(timestamp: date, score: score));
   }
   return readings;
 }
 
-double _scoreAt(DateTime t, double baseline, Random rng) {
-  final hour = t.hour + t.minute / 60.0;
-  final morningPeak = 12 * exp(-pow(hour - 11.0, 2) / 8);
-  final afternoonDip = -6 * exp(-pow(hour - 15.0, 2) / 4);
-  final noise = (rng.nextDouble() - 0.5) * 6;
-  return (baseline + morningPeak + afternoonDip + noise).clamp(20.0, 98.0);
+// Slow start, accelerates through spring, plateaus near peak
+double _seasonCurve(double t) {
+  if (t < 0.5) return 2 * t * t;
+  return 1.0 - pow(-2 * t + 2, 2) / 2;
+}
+
+// Dips tied to weather/event log entries
+double _narrativeShock(DateTime d) {
+  // Polar vortex Feb 4–9: hard dip
+  if (d.month == 2 && d.day >= 4 && d.day <= 9)  return -14.0;
+  // Late frost Mar 14–17
+  if (d.month == 3 && d.day >= 14 && d.day <= 17) return -10.0;
+  // Post-swarm split recovery Apr 1–6
+  if (d.month == 4 && d.day >= 1  && d.day <= 6)  return -8.0;
+  // Heat wave May 19–23
+  if (d.month == 5 && d.day >= 19 && d.day <= 23) return -9.0;
+  return 0.0;
 }
 
 // ---------------------------------------------------------------------------

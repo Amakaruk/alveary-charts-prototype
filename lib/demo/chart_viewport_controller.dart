@@ -91,6 +91,12 @@ class ChartViewportController extends ChangeNotifier {
   /// Latest CPS score (last point in daily data).
   double get latestCps => _dailyData.last.score;
 
+  /// CPS change over the last 7 data days (positive = improving).
+  double? get recentTrendDelta {
+    if (_dailyData.length < 8) return null;
+    return _dailyData.last.score - _dailyData[_dailyData.length - 8].score;
+  }
+
   /// Weather for a given date, or null if unavailable.
   WeatherDay? weatherForDate(DateTime date) =>
       _weather['${date.year}-${date.month}-${date.day}'];

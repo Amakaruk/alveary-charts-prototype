@@ -24,14 +24,14 @@ class InspectionTable extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Padding(
-              padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+              padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
               child: Text(
-                'Inspection Log',
+                'LOG',
                 style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 14,
+                  color: Color(0x4DFFFFFF),
+                  fontSize: 10,
                   fontWeight: FontWeight.w600,
-                  letterSpacing: 0.5,
+                  letterSpacing: 2.0,
                 ),
               ),
             ),
@@ -78,61 +78,104 @@ class _InspectionRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final typeColor = switch (log.type) {
+      LogType.inspection => kMarkerInspection,
+      LogType.weather    => kMarkerWeather,
+      LogType.seasonal   => kMarkerSeasonal,
+    };
+    final typeLabel = switch (log.type) {
+      LogType.inspection => 'Inspection',
+      LogType.weather    => 'Weather',
+      LogType.seasonal   => 'Seasonal',
+    };
+
     return InkWell(
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        color: isActive ? kAccent.withValues(alpha: 0.08) : Colors.transparent,
-        padding: const EdgeInsets.only(left: 16, top: 10, bottom: 10, right: 4),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            // Leading: CPS badge
-            _CpsBadge(score: log.cps, isActive: isActive),
-            const SizedBox(width: 12),
-            // Body: tag+date header / note
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+        color: isActive
+            ? Colors.white.withValues(alpha: 0.05)
+            : Colors.transparent,
+        child: IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Left type accent bar
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                width: 2,
+                color: typeColor.withValues(alpha: isActive ? 0.9 : 0.35),
+              ),
+              // Content
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      _TypeTag(type: log.type),
-                      const SizedBox(width: 8),
-                      Text(
-                        DateFormat('MMM d').format(log.date),
-                        style: TextStyle(
-                          color: isActive ? kAccent : const Color(0x89FFFFFF),
-                          fontSize: 11,
-                          fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
+                      // Body
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Date + type label
+                            Row(
+                              children: [
+                                Text(
+                                  DateFormat('MMM d').format(log.date),
+                                  style: TextStyle(
+                                    color: isActive
+                                        ? Colors.white
+                                        : const Color(0xBFFFFFFF),
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  typeLabel,
+                                  style: TextStyle(
+                                    color: typeColor.withValues(alpha: 0.55),
+                                    fontSize: 10,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 3),
+                            // Note — primary content
+                            Text(
+                              log.note,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: isActive
+                                    ? Colors.white
+                                    : const Color(0x89FFFFFF),
+                                fontSize: 13,
+                                height: 1.4,
+                              ),
+                            ),
+                          ],
                         ),
+                      ),
+                      const SizedBox(width: 8),
+                      // CPS — quiet reference
+                      _CpsBadge(score: log.cps, isActive: isActive),
+                      // Chevron
+                      IconButton(
+                        icon: const Icon(
+                          Icons.expand_more,
+                          color: Color(0x40FFFFFF),
+                          size: 20,
+                        ),
+                        onPressed: () => _showDetailSheet(context),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 3),
-                  Text(
-                    log.note,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: isActive ? Colors.white : const Color(0xCCFFFFFF),
-                      fontSize: 12,
-                      height: 1.4,
-                    ),
-                  ),
-                ],
+                ),
               ),
-            ),
-            // Trailing: chevron opens detail sheet
-            IconButton(
-              icon: const Icon(
-                Icons.expand_more,
-                color: Color(0x61FFFFFF),
-                size: 20,
-              ),
-              onPressed: () => _showDetailSheet(context),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -276,39 +319,6 @@ class _LogDetailSheet extends StatelessWidget {
 
 // ---------------------------------------------------------------------------
 
-class _TypeTag extends StatelessWidget {
-  final LogType type;
-  const _TypeTag({required this.type});
-
-  @override
-  Widget build(BuildContext context) {
-    final color = switch (type) {
-      LogType.inspection => kMarkerInspection,
-      LogType.weather    => kMarkerWeather,
-      LogType.seasonal   => kMarkerSeasonal,
-    };
-    final label = switch (type) {
-      LogType.inspection => 'Inspection',
-      LogType.weather    => 'Weather',
-      LogType.seasonal   => 'Seasonal',
-    };
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 6,
-          height: 6,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        ),
-        const SizedBox(width: 4),
-        Text(
-          label,
-          style: TextStyle(color: color.withValues(alpha: 0.8), fontSize: 9),
-        ),
-      ],
-    );
-  }
-}
 
 class _CpsBadge extends StatelessWidget {
   final double score;

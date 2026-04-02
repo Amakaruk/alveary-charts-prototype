@@ -131,7 +131,10 @@ class _CpsLineChartState extends State<CpsLineChart> {
     final isIntraday = c.zoom == ZoomLevel.intraday;
     final lastX = spots.isNotEmpty ? spots.last.x : 0.0;
     final markers = c.visibleLogMarkers(logs);
-    final tipIdx = _tooltipSpotIndex;
+    // Guard against stale index after zoom change shrinks the spots list
+    final tipIdx = (_tooltipSpotIndex != null && _tooltipSpotIndex! < spots.length)
+        ? _tooltipSpotIndex
+        : null;
     final barData = LineChartBarData(
       spots: spots,
       isCurved: false,
@@ -236,22 +239,25 @@ class _CpsLineChartState extends State<CpsLineChart> {
               LogType.weather    => kMarkerWeather,
               LogType.seasonal   => kMarkerSeasonal,
             };
-            final dash = switch (m.log.type) {
-              LogType.inspection => [3, 4],
-              LogType.weather    => [2, 3],
-              LogType.seasonal   => [5, 3],
+            final icon = switch (m.log.type) {
+              LogType.inspection => '◆',
+              LogType.weather    => '◈',
+              LogType.seasonal   => '◉',
             };
             return VerticalLine(
               x: m.x,
-              color: color.withValues(alpha: 0.5),
+              color: color.withValues(alpha: 0.18),
               strokeWidth: 1,
-              dashArray: dash,
               label: VerticalLineLabel(
                 show: true,
                 alignment: Alignment.bottomCenter,
-                padding: const EdgeInsets.only(bottom: 4),
-                style: TextStyle(color: color.withValues(alpha: 0.9), fontSize: 8),
-                labelResolver: (_) => '▲',
+                padding: const EdgeInsets.only(bottom: 6),
+                style: TextStyle(
+                  color: color.withValues(alpha: 0.85),
+                  fontSize: 9,
+                  height: 1,
+                ),
+                labelResolver: (_) => icon,
               ),
             );
           }).toList(),
