@@ -1,10 +1,11 @@
 import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:vibration/vibration.dart';
 import 'package:intl/intl.dart';
+import 'app_colors.dart';
 import 'chart_viewport_controller.dart';
 import 'cps_mock_data.dart';
-import 'app_colors.dart';
 import 'weather_data.dart';
 
 class CpsLineChart extends StatefulWidget {
@@ -47,7 +48,7 @@ class _CpsLineChartState extends State<CpsLineChart> {
     final bucket = (widget.controller.viewportStart / step).floor().toDouble();
     if (bucket != _lastTickBucket) {
       _lastTickBucket = bucket;
-      Vibration.vibrate(duration: 15, amplitude: 80);
+      if (!kIsWeb) Vibration.vibrate(duration: 15, amplitude: 80);
     }
   }
 
@@ -68,28 +69,32 @@ class _CpsLineChartState extends State<CpsLineChart> {
     final ts = c.timestampAt(absIdx);
 
     if (c.zoom == ZoomLevel.intraday) {
-      // Show label only at the first data point within each hour.
-      if (absIdx == 0) return '${ts.hour}:00';
-      final prevTs = c.timestampAt(absIdx - 1);
-      if (prevTs.hour == ts.hour) return null;
-      return '${ts.hour.toString().padLeft(2, '0')}:00';
+      // Show label every 3 hours to avoid crowding.
+      if (ts.hour % 3 != 0) return null;
+      if (absIdx > 0) {
+        final prevTs = c.timestampAt(absIdx - 1);
+        if (prevTs.hour == ts.hour) return null; // deduplicate within same hour
+      }
+      return DateFormat('ha').format(ts).toLowerCase(); // "6am", "12pm"
     }
 
-    // Weekly / monthly: anchor labels to viewport centre so one always lands
-    // in the middle of the screen.
-    final centerAbs = c.viewportStart.floor() + c.visiblePoints ~/ 2;
-    final interval = c.zoom == ZoomLevel.weekly ? 1 : 5;
-    if ((absIdx - centerAbs) % interval != 0) return null;
+    if (c.zoom == ZoomLevel.monthly) {
+      // Show label only at month boundaries.
+      if (absIdx == 0) return DateFormat('MMM').format(ts);
+      final prevTs = c.timestampAt(absIdx - 1);
+      if (prevTs.month == ts.month) return null;
+      return DateFormat('MMM').format(ts); // "Feb", "Mar"
+    }
 
-    return switch (c.zoom) {
-      ZoomLevel.intraday => '', // unreachable
-      ZoomLevel.weekly => DateFormat('EEE\nMMM d').format(ts),
-      ZoomLevel.monthly => DateFormat('MMM d').format(ts),
-    };
+    // Weekly: anchor to viewport centre, show every day.
+    final centerAbs = c.viewportStart.floor() + c.visiblePoints ~/ 2;
+    if ((absIdx - centerAbs) % 1 != 0) return null;
+    return DateFormat('EEEEE\nd').format(ts); // "M\n3"
   }
 
   @override
   Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
     return LayoutBuilder(
       builder: (context, constraints) {
         _chartWidth = constraints.maxWidth;
@@ -109,7 +114,7 @@ class _CpsLineChartState extends State<CpsLineChart> {
             listenable: widget.controller,
             builder: (context, _) {
               final overscroll = widget.controller.overscrollPixels;
-              Widget chart = _buildChart(widget.controller, widget.logs);
+              Widget chart = _buildChart(widget.controller, widget.logs, palette);
               if (overscroll > 0) {
                 chart = ClipRect(
                   child: Transform.translate(
@@ -126,7 +131,8 @@ class _CpsLineChartState extends State<CpsLineChart> {
     );
   }
 
-  Widget _buildChart(ChartViewportController c, List<InspectionLog> logs) {
+  Widget _buildChart(
+      ChartViewportController c, List<InspectionLog> logs, AppPalette p) {
     final spots = c.visibleSpots;
     final isIntraday = c.zoom == ZoomLevel.intraday;
     final lastX = spots.isNotEmpty ? spots.last.x : 0.0;
@@ -138,7 +144,7 @@ class _CpsLineChartState extends State<CpsLineChart> {
     final barData = LineChartBarData(
       spots: spots,
       isCurved: false,
-      color: kAccent,
+      color: p.accent,
       barWidth: 2,
       belowBarData: BarAreaData(
         show: true,
@@ -146,8 +152,8 @@ class _CpsLineChartState extends State<CpsLineChart> {
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            kAccent.withValues(alpha: 0.22),
-            kAccent.withValues(alpha: 0.0),
+            p.accent.withValues(alpha: 0.22),
+            p.accent.withValues(alpha: 0.0),
           ],
         ),
       ),
@@ -155,7 +161,7 @@ class _CpsLineChartState extends State<CpsLineChart> {
       showingIndicators: tipIdx != null ? [tipIdx] : [],
     );
 
-    return LineChart(
+    final chart = LineChart(
       duration: Duration.zero,
       LineChartData(
         minX: 0,
@@ -185,17 +191,19 @@ class _CpsLineChartState extends State<CpsLineChart> {
                   return _WeatherAxisLabel(
                     meta: meta,
                     dateLabel: label,
+                    palette: p,
+                    space: _xTitleSpace(c),
                     weather: c.weatherForDate(
                         c.timestampAt(c.viewportStart.floor() + v.toInt())),
                   );
                 }
                 return SideTitleWidget(
                   meta: meta,
+                  space: _xTitleSpace(c),
                   child: Text(
                     label,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
-                        color: Color(0x89FFFFFF), fontSize: 11),
+                    style: TextStyle(color: p.onSurfaceMed, fontSize: 11),
                   ),
                 );
               },
@@ -211,8 +219,8 @@ class _CpsLineChartState extends State<CpsLineChart> {
                 show: true,
                 alignment: Alignment.topLeft,
                 padding: const EdgeInsets.only(left: 6, bottom: 2),
-                style: const TextStyle(
-                    color: Color(0x33FFFFFF),
+                style: TextStyle(
+                    color: p.onSurfaceLow,
                     fontSize: 9,
                     fontWeight: FontWeight.w500),
                 labelResolver: (_) => '100',
@@ -225,8 +233,8 @@ class _CpsLineChartState extends State<CpsLineChart> {
                 show: true,
                 alignment: Alignment.bottomLeft,
                 padding: const EdgeInsets.only(left: 6, top: 2),
-                style: const TextStyle(
-                    color: Color(0x33FFFFFF),
+                style: TextStyle(
+                    color: p.onSurfaceLow,
                     fontSize: 9,
                     fontWeight: FontWeight.w500),
                 labelResolver: (_) => '0',
@@ -234,52 +242,31 @@ class _CpsLineChartState extends State<CpsLineChart> {
             ),
           ],
           verticalLines: markers.map((m) {
-            final color = switch (m.log.type) {
-              LogType.inspection => kMarkerInspection,
-              LogType.weather    => kMarkerWeather,
-              LogType.seasonal   => kMarkerSeasonal,
-            };
-            final icon = switch (m.log.type) {
-              LogType.inspection => '◆',
-              LogType.weather    => '◈',
-              LogType.seasonal   => '◉',
-            };
             return VerticalLine(
               x: m.x,
-              color: color.withValues(alpha: 0.18),
+              color: p.onSurface.withValues(alpha: 0.15),
               strokeWidth: 1,
-              label: VerticalLineLabel(
-                show: true,
-                alignment: Alignment.bottomCenter,
-                padding: const EdgeInsets.only(bottom: 6),
-                style: TextStyle(
-                  color: color.withValues(alpha: 0.85),
-                  fontSize: 9,
-                  height: 1,
-                ),
-                labelResolver: (_) => icon,
-              ),
             );
           }).toList(),
         ),
         lineTouchData: LineTouchData(
           handleBuiltInTouches: false,
           touchTooltipData: LineTouchTooltipData(
-            getTooltipColor: (_) => kSurface,
+            getTooltipColor: (_) => p.surface,
             getTooltipItems: (touchedSpots) => touchedSpots.map((s) {
               final absIdx = c.viewportStart.floor() + s.spotIndex;
               final ts = c.timestampAt(absIdx);
               return LineTooltipItem(
-                '${s.y.toStringAsFixed(1)}\n',
-                const TextStyle(
-                    color: kAccent,
+                '${s.y.round()}\n',
+                TextStyle(
+                    color: p.accent,
                     fontWeight: FontWeight.bold,
                     fontSize: 13),
                 children: [
                   TextSpan(
                     text: DateFormat('MMM d').format(ts),
-                    style: const TextStyle(
-                        color: Color(0x89FFFFFF),
+                    style: TextStyle(
+                        color: p.onSurfaceMed,
                         fontSize: 10,
                         fontWeight: FontWeight.normal),
                   ),
@@ -309,12 +296,29 @@ class _CpsLineChartState extends State<CpsLineChart> {
             : null,
       ),
     );
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Expanded(child: chart),
+        Divider(height: 1, thickness: 1, color: p.onSurfaceSubtle),
+      ],
+    );
   }
 
   double _xReservedSize(ChartViewportController c) => switch (c.zoom) {
         ZoomLevel.intraday => 26,
-        ZoomLevel.weekly   => 76,
-        ZoomLevel.monthly  => 42,
+        ZoomLevel.weekly   => 72,
+        ZoomLevel.monthly  => 30,
+      };
+
+  // Space from chart boundary to title widget — centers content in reserved area.
+  // Intraday: ~14px text in 26px → (26-14)/2 = 6
+  // Monthly:  ~14px text in 30px → (30-14)/2 = 8
+  // Weekly:   ~52px column in 72px → (72-52)/2 = 10
+  double _xTitleSpace(ChartViewportController c) => switch (c.zoom) {
+        ZoomLevel.intraday => 6,
+        ZoomLevel.weekly   => 10,
+        ZoomLevel.monthly  => 8,
       };
 }
 
@@ -326,36 +330,42 @@ class _WeatherAxisLabel extends StatelessWidget {
   final TitleMeta meta;
   final String dateLabel;
   final WeatherDay? weather;
+  final AppPalette palette;
+
+  final double space;
 
   const _WeatherAxisLabel({
     required this.meta,
     required this.dateLabel,
+    required this.palette,
     required this.weather,
+    this.space = 10,
   });
 
   @override
   Widget build(BuildContext context) {
     return SideTitleWidget(
       meta: meta,
+      space: space,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
             dateLabel,
             textAlign: TextAlign.center,
-            style: const TextStyle(color: Color(0x89FFFFFF), fontSize: 11),
+            style: TextStyle(color: palette.onSurfaceMed, fontSize: 11),
           ),
-          const SizedBox(height: 3),
+          const SizedBox(height: 2),
           Text(
             weather != null ? weatherEmoji(weather!.condition) : '—',
-            style: const TextStyle(fontSize: 13, height: 1),
+            style: const TextStyle(fontSize: 14, height: 1),
           ),
           const SizedBox(height: 2),
           Text(
             weather != null
                 ? '${weather!.highC}°/${weather!.lowC}°'
                 : '',
-            style: const TextStyle(color: Color(0x66FFFFFF), fontSize: 9),
+            style: TextStyle(color: palette.onSurfaceMed, fontSize: 11),
           ),
         ],
       ),

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'chart_viewport_controller.dart';
 import 'app_colors.dart';
+import 'chart_viewport_controller.dart';
 
 class ZoomToggle extends StatelessWidget {
   final ZoomLevel selected;
@@ -20,9 +20,10 @@ class ZoomToggle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     return PopupMenuButton<ZoomLevel>(
       onSelected: onChanged,
-      color: const Color(0xFF1E2530),
+      color: p.surface,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       itemBuilder: (context) => ZoomLevel.values.map((z) {
         final isSelected = z == selected;
@@ -34,17 +35,13 @@ class ZoomToggle extends StatelessWidget {
                 child: Text(
                   _label(z),
                   style: TextStyle(
-                    color: isSelected
-                        ? kAccent
-                        : const Color(0xCCFFFFFF),
+                    color: isSelected ? p.accent : p.onSurfaceMed,
                     fontSize: 14,
-                    fontWeight:
-                        isSelected ? FontWeight.w600 : FontWeight.normal,
+                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
                   ),
                 ),
               ),
-              if (isSelected)
-                const Icon(Icons.check, color: Color(0xFF4FFFB0), size: 16),
+              if (isSelected) Icon(Icons.check, color: p.accent, size: 16),
             ],
           ),
         );
@@ -52,27 +49,23 @@ class ZoomToggle extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: const Color(0xFF161920),
+          color: p.surface2,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: const Color(0x33FFFFFF)),
+          border: Border.all(color: p.onSurfaceLow),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
               _label(selected),
-              style: const TextStyle(
-                color: Colors.white,
+              style: TextStyle(
+                color: p.onSurface,
                 fontSize: 13,
                 fontWeight: FontWeight.w500,
               ),
             ),
             const SizedBox(width: 6),
-            const Icon(
-              Icons.keyboard_arrow_down,
-              color: Color(0x89FFFFFF),
-              size: 16,
-            ),
+            Icon(Icons.keyboard_arrow_down, color: p.onSurfaceMed, size: 16),
           ],
         ),
       ),

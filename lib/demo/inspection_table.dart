@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'app_colors.dart';
 import 'chart_viewport_controller.dart';
 import 'cps_mock_data.dart';
-import 'app_colors.dart';
 
 class InspectionTable extends StatelessWidget {
   final ChartViewportController controller;
@@ -16,6 +16,7 @@ class InspectionTable extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     return ListenableBuilder(
       listenable: controller,
       builder: (context, _) {
@@ -23,12 +24,12 @@ class InspectionTable extends StatelessWidget {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Padding(
-              padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 6),
               child: Text(
                 'LOG',
                 style: TextStyle(
-                  color: Color(0x4DFFFFFF),
+                  color: p.onSurfaceLow,
                   fontSize: 10,
                   fontWeight: FontWeight.w600,
                   letterSpacing: 2.0,
@@ -39,15 +40,16 @@ class InspectionTable extends StatelessWidget {
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               itemCount: logs.length,
-              separatorBuilder: (context, index) => const Divider(
-                color: Color(0x1AFFFFFF),
+              separatorBuilder: (context, index) => Divider(
+                color: p.onSurfaceSubtle,
                 height: 1,
                 indent: 16,
                 endIndent: 16,
               ),
               itemBuilder: (context, i) {
                 final log = logs[i];
-                final isActive = _isSameDay(log.date, centreDate);
+                final isActive =
+                    _isSameDay(log.date, centreDate);
                 return _InspectionRow(
                   log: log,
                   isActive: isActive,
@@ -65,6 +67,12 @@ class InspectionTable extends StatelessWidget {
       a.year == b.year && a.month == b.month && a.day == b.day;
 }
 
+// ---------------------------------------------------------------------------
+// Row — responsive layout
+// >= 600px: single-line table cells (date | type | note | CPS | chevron)
+//  < 600px: stacked (date + type / note / CPS badge)
+// ---------------------------------------------------------------------------
+
 class _InspectionRow extends StatelessWidget {
   final InspectionLog log;
   final bool isActive;
@@ -78,8 +86,9 @@ class _InspectionRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     final typeColor = switch (log.type) {
-      LogType.inspection => kMarkerInspection,
+      LogType.inspection => p.markerInspection,
       LogType.weather    => kMarkerWeather,
       LogType.seasonal   => kMarkerSeasonal,
     };
@@ -89,95 +98,48 @@ class _InspectionRow extends StatelessWidget {
       LogType.seasonal   => 'Seasonal',
     };
 
-    return InkWell(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        color: isActive
-            ? Colors.white.withValues(alpha: 0.05)
-            : Colors.transparent,
-        child: IntrinsicHeight(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Left type accent bar
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                width: 2,
-                color: typeColor.withValues(alpha: isActive ? 0.9 : 0.35),
-              ),
-              // Content
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      // Body
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Date + type label
-                            Row(
-                              children: [
-                                Text(
-                                  DateFormat('MMM d').format(log.date),
-                                  style: TextStyle(
-                                    color: isActive
-                                        ? Colors.white
-                                        : const Color(0xBFFFFFFF),
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  typeLabel,
-                                  style: TextStyle(
-                                    color: typeColor.withValues(alpha: 0.55),
-                                    fontSize: 10,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 3),
-                            // Note — primary content
-                            Text(
-                              log.note,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: isActive
-                                    ? Colors.white
-                                    : const Color(0x89FFFFFF),
-                                fontSize: 13,
-                                height: 1.4,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      // CPS — quiet reference
-                      _CpsBadge(score: log.cps, isActive: isActive),
-                      // Chevron
-                      IconButton(
-                        icon: const Icon(
-                          Icons.expand_more,
-                          color: Color(0x40FFFFFF),
-                          size: 20,
-                        ),
-                        onPressed: () => _showDetailSheet(context),
-                      ),
-                    ],
+    return Builder(
+      builder: (context) {
+        final isWide = MediaQuery.of(context).size.width >= 600;
+        return InkWell(
+          onTap: onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            color: isActive
+                ? p.onSurface.withValues(alpha: 0.06)
+                : Colors.transparent,
+            child: IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Type accent bar
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    width: 2,
+                    color: typeColor
+                        .withValues(alpha: isActive ? 0.85 : 0.3),
                   ),
-                ),
+                  Expanded(
+                    child: isWide
+                        ? _WideRow(
+                            log: log,
+                            isActive: isActive,
+                            typeLabel: typeLabel,
+                            onChevron: () => _showDetailSheet(context),
+                          )
+                        : _NarrowRow(
+                            log: log,
+                            isActive: isActive,
+                            typeLabel: typeLabel,
+                            onChevron: () => _showDetailSheet(context),
+                          ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -193,7 +155,152 @@ class _InspectionRow extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Bottom sheet
+// Wide row — single line, fixed-width columns
+// ---------------------------------------------------------------------------
+
+class _WideRow extends StatelessWidget {
+  final InspectionLog log;
+  final bool isActive;
+  final String typeLabel;
+  final VoidCallback onChevron;
+
+  const _WideRow({
+    required this.log,
+    required this.isActive,
+    required this.typeLabel,
+    required this.onChevron,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          // Date
+          SizedBox(
+            width: 52,
+            child: Text(
+              DateFormat('MMM d').format(log.date),
+              style: TextStyle(
+                color: p.onSurface,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          // Type
+          SizedBox(
+            width: 82,
+            child: Text(
+              typeLabel,
+              style: TextStyle(color: p.onSurfaceMed, fontSize: 12),
+            ),
+          ),
+          // Note
+          Expanded(
+            child: Text(
+              log.note,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: p.onSurfaceMed, fontSize: 13),
+            ),
+          ),
+          const SizedBox(width: 12),
+          // CPS badge
+          _CpsBadge(score: log.cps, isActive: isActive),
+          // Chevron
+          IconButton(
+            icon: Icon(Icons.expand_more, color: p.onSurfaceLow, size: 18),
+            onPressed: onChevron,
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            visualDensity: VisualDensity.compact,
+            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Narrow row — stacked, two-line layout
+// ---------------------------------------------------------------------------
+
+class _NarrowRow extends StatelessWidget {
+  final InspectionLog log;
+  final bool isActive;
+  final String typeLabel;
+  final VoidCallback onChevron;
+
+  const _NarrowRow({
+    required this.log,
+    required this.isActive,
+    required this.typeLabel,
+    required this.onChevron,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      DateFormat('MMM d').format(log.date),
+                      style: TextStyle(
+                        color: isActive ? p.onSurface : p.onSurfaceMed,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      typeLabel,
+                      style:
+                          TextStyle(color: p.onSurfaceMed, fontSize: 10),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  log.note,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: isActive ? p.onSurface : p.onSurfaceMed,
+                    fontSize: 13,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Center(child: _CpsBadge(score: log.cps, isActive: isActive)),
+          IconButton(
+            icon:
+                Icon(Icons.expand_more, color: p.onSurfaceLow, size: 20),
+            onPressed: onChevron,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Detail sheet
 // ---------------------------------------------------------------------------
 
 class _LogDetailSheet extends StatelessWidget {
@@ -202,8 +309,9 @@ class _LogDetailSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     final typeColor = switch (log.type) {
-      LogType.inspection => kMarkerInspection,
+      LogType.inspection => p.markerInspection,
       LogType.weather    => kMarkerWeather,
       LogType.seasonal   => kMarkerSeasonal,
     };
@@ -214,33 +322,30 @@ class _LogDetailSheet extends StatelessWidget {
     };
 
     return Container(
-      decoration: const BoxDecoration(
-        color: Color(0xFF1E2530),
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      height: MediaQuery.of(context).size.height * 0.65,
+      decoration: BoxDecoration(
+        color: p.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       ),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Drag handle
           Center(
             child: Container(
               margin: const EdgeInsets.only(top: 12, bottom: 8),
               width: 36,
               height: 4,
               decoration: BoxDecoration(
-                color: const Color(0x33FFFFFF),
+                color: p.onSurfaceLow,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
           ),
-          // Header
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 4, 8, 16),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                // Type dot + label
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -248,15 +353,13 @@ class _LogDetailSheet extends StatelessWidget {
                       width: 8,
                       height: 8,
                       decoration: BoxDecoration(
-                        color: typeColor,
-                        shape: BoxShape.circle,
-                      ),
+                          color: typeColor, shape: BoxShape.circle),
                     ),
                     const SizedBox(width: 6),
                     Text(
                       typeLabel,
                       style: TextStyle(
-                        color: typeColor,
+                        color: p.onSurface,
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
                       ),
@@ -266,51 +369,74 @@ class _LogDetailSheet extends StatelessWidget {
                 const SizedBox(width: 12),
                 Text(
                   DateFormat('MMM d').format(log.date),
-                  style: const TextStyle(
-                    color: Color(0x89FFFFFF),
-                    fontSize: 12,
-                  ),
+                  style:
+                      TextStyle(color: p.onSurfaceMed, fontSize: 12),
                 ),
                 const Spacer(),
-                // CPS badge
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                    color: kAccent.withValues(alpha: 0.12),
+                    color: p.onSurface.withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(6),
                     border: Border.all(
-                      color: kAccent.withValues(alpha: 0.35),
-                      width: 1,
-                    ),
+                        color: p.onSurfaceLow, width: 1),
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        log.cps.toStringAsFixed(1),
-                        style: const TextStyle(
-                          color: kAccent,
+                        log.cps.round().toString(),
+                        style: TextStyle(
+                          color: p.onSurface,
                           fontSize: 14,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      const Text(
-                        'CPS',
-                        style: TextStyle(color: Color(0x89FFFFFF), fontSize: 9),
-                      ),
+                      Text('CPS',
+                          style: TextStyle(
+                              color: p.onSurfaceMed, fontSize: 9)),
                     ],
                   ),
                 ),
                 const SizedBox(width: 4),
                 IconButton(
-                  icon: const Icon(Icons.close, color: Color(0x89FFFFFF), size: 20),
+                  icon: Icon(Icons.close,
+                      color: p.onSurfaceMed, size: 20),
                   onPressed: () => Navigator.of(context).pop(),
                 ),
               ],
             ),
           ),
-          // Placeholder body
-          const SizedBox(height: 200),
+          Divider(color: p.onSurfaceSubtle, height: 1),
+          Flexible(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Notes',
+                    style: TextStyle(
+                      color: p.onSurfaceLow,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    log.note,
+                    style: TextStyle(
+                      color: p.onSurfaceMed,
+                      fontSize: 14,
+                      height: 1.6,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -318,7 +444,8 @@ class _LogDetailSheet extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-
+// CPS badge
+// ---------------------------------------------------------------------------
 
 class _CpsBadge extends StatelessWidget {
   final double score;
@@ -328,26 +455,28 @@ class _CpsBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     return Container(
-      width: 46,
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: isActive
-            ? kAccent.withValues(alpha: 0.15)
-            : const Color(0xFF1E2530),
+            ? p.onSurface.withValues(alpha: 0.08)
+            : p.surface,
         borderRadius: BorderRadius.circular(6),
         border: Border.all(
-          color: isActive ? kAccent.withValues(alpha: 0.5) : Colors.transparent,
+          color: isActive ? p.onSurfaceLow : Colors.transparent,
           width: 1,
         ),
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Text(
-            score.toStringAsFixed(1),
+            score.round().toString(),
             textAlign: TextAlign.center,
             style: TextStyle(
-              color: isActive ? kAccent : Colors.white,
+              color: p.onSurface,
               fontSize: 12,
               fontWeight: FontWeight.bold,
             ),
@@ -355,12 +484,7 @@ class _CpsBadge extends StatelessWidget {
           Text(
             'CPS',
             textAlign: TextAlign.center,
-            style: TextStyle(
-              color: isActive
-                  ? kAccent.withValues(alpha: 0.7)
-                  : const Color(0x61FFFFFF),
-              fontSize: 9,
-            ),
+            style: TextStyle(color: p.onSurfaceMed, fontSize: 9),
           ),
         ],
       ),

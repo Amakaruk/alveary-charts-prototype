@@ -376,4 +376,134 @@ alveary-charts-prototype/lib/demo/
   chart_demo_screen.dart         ← custom header, screen layout, no AppBar
   night_overlay.dart             ← intraday night shoulders + moon/sunrise icons
   moon_phase.dart                ← moonPhase() + moonIcon()
+  hive_task.dart                 ← HiveTask model, Recommendation model, deriveRecommendations()
+  plan_tab.dart                  ← Plan tab: recommended cards + to-do checklist
 ```
+
+---
+
+## Decisions — Screen Architecture & Information Architecture
+
+### 19. Screen layout — unified single scrollview (tabs removed)
+
+**Decision (supersedes earlier tab-split design):** No `TabBar`. Single `Column`: sticky header + 280px chart, then one `SingleChildScrollView` with everything below.
+
+```
+Column
+├── Header row (sticky)
+├── SizedBox(height: 280) — chart, always visible, fixed height
+└── Expanded > SingleChildScrollView
+    ├── UPCOMING — planned inspections + suggested task cards
+    ├── Today divider (temporal anchor)
+    └── LOG — InspectionTable (past entries)
+```
+
+**Chart height fixed at 280px** — never changes between zoom levels to prevent UI jump. The `SizedBox` is outside the `ListenableBuilder`.
+
+**Why tabs were removed:** The tab design added UI chrome without meaningful benefit. A single chronological timeline (upcoming → now → past) is simpler and more scannable.
+
+---
+
+### 20. Information architecture — UPCOMING / LOG split
+
+**UPCOMING (above today divider):** planned inspections (compact row, date + task count, no individual tasks shown) + suggested task cards (tappable → KB-article detail sheet).
+
+**LOG (below today divider):** past `InspectionLog` rows — 2px accent bar, date, type label, note, CPS badge, chevron → detail sheet.
+
+---
+
+### 21. Recommendations are server-driven only
+
+Recommendations come from a server-side rules engine considering the full hive profile. The app renders whatever it receives — no client-side derivation.
+
+**Prototype:** `mockRecommendations` in `hive_task.dart` (3 static items). `Recommendation` model: `title`, `detail`, `actionItems: List<String>`, `urgency`, `source`.
+
+**Do not recreate `deriveRecommendations()` in production.** That function was prototyped and removed.
+
+---
+
+### 22. Suggested task detail sheet — KB article pattern
+
+Tapping a task card opens a detail sheet with full description + action items.
+
+**Platform adaptive:** `showGeneralDialog` + `SlideTransition` for desktop (≥600px) → `SizedBox(width: 400, height: MediaQuery.of(context).size.height)`. `showModalBottomSheet` on mobile.
+
+**Critical:** The desktop side panel `SizedBox` needs explicit `height`. Without it, `Expanded` children throw unbounded constraint errors.
+
+---
+
+### 23. Map belongs on apiary profile only — never on hive profile
+
+**Decision:** A map showing hive location belongs on the **apiary profile**, not the hive profile.
+
+**Rationale:** A single hive has no distinct GPS coordinate — it's *at* the apiary. All hives in Spring Apiary share the same pin, which adds no value on the hive screen. The apiary profile is where location is meaningful: forage radius, terrain, multiple hives in one yard. The hive name header already implies location via its parent apiary.
+
+**Future:** If within-apiary layout (showing where *this* hive sits relative to others in the yard) is needed, that's a distinct "yard map" component, not a geo map — and still belongs on the apiary profile, not the hive profile.
+
+---
+
+### 24. Theming — AppPalette ThemeExtension (light + dark)
+
+**Decision:** Replaced compile-time `const kX` color constants with `AppPalette extends ThemeExtension<AppPalette>`. Two presets (`AppPalette.dark`, `AppPalette.light`) registered on `darkTheme` and `theme` respectively in `main.dart`. All widgets resolve via `AppPalette.of(context)`.
+
+**Why:** Allows `ThemeMode.system` to switch palettes automatically. `lerp()` implemented for animated theme transitions. `cps_line_chart.dart` resolves palette in `build()` and passes it as a parameter into `_buildChart()` because fl_chart callbacks lack `BuildContext`.
+
+**Palette tokens:** `accent` (chart line: white dark / near-black light), `bg`, `surface`, `surface2`, `onSurface`, `onSurfaceMed`, `onSurfaceLow`, `onSurfaceSubtle`, `markerInspection`.
+
+**Fonts:** `google_fonts` package. Domine w600 for display/headline/title roles. Noto Sans for body/label. Applied at `ThemeData.textTheme` level + explicitly on the CPS display number.
+
+**CPS score font:** Noto Sans w800 (not Domine — serif was too antiquated for a numeric display).
+
+---
+
+### 25. LayoutBuilder inside IntrinsicHeight — FORBIDDEN
+
+**Never use `LayoutBuilder` as a descendant of `IntrinsicHeight`.** This causes the entire widget subtree to render blank on iOS with no error in debug mode.
+
+**Pattern to use instead:**
+```dart
+// WRONG — causes blank render on iOS
+IntrinsicHeight(
+  child: LayoutBuilder(builder: (context, constraints) { ... })
+)
+
+// RIGHT
+Builder(builder: (context) {
+  final isWide = MediaQuery.of(context).size.width >= 600;
+  return IntrinsicHeight(child: ...);
+})
+```
+
+This affects any responsive row that uses `IntrinsicHeight` to stretch a left accent bar to full row height (e.g., `_InspectionRow`, `_PlannedInspectionRow`).
+
+---
+
+### 26. Vibration on web — kIsWeb guard required
+
+```dart
+if (!kIsWeb) Vibration.vibrate(duration: 15, amplitude: 80);
+```
+
+Without the guard, `Vibration.vibrate()` throws `MissingPluginException` on every pan frame and corrupts the Chrome UI. Import `package:flutter/foundation.dart` for `kIsWeb`.
+
+---
+
+### 27. Log markers — thin solid lines only, no type differentiation
+
+**Decision:** All log markers on the chart are identical thin solid vertical lines. Single color: `p.onSurface.withValues(alpha: 0.15)`. No per-type colors, no unicode icons at the base.
+
+**Why previous version was removed:** Per-type colors (blue for weather, green for seasonal) were unreadable on the warm brown surface. Unicode symbols (◆ ◈ ◉) at the bottom added visual noise. The lines alone convey "something happened here" sufficiently — the LOG section below provides the detail.
+
+---
+
+### 28. X-axis labels — final validated formats
+
+**Intraday:** Every 3 hours only (every-hour labels collide on narrow screens). Format: `DateFormat('ha').format(ts).toLowerCase()` → "6am", "12pm". Guard against duplicates within the same hour when multiple data points share an hour.
+
+**Weekly:** `DateFormat('EEEEE\nd').format(ts)` → "M\n3" (narrow weekday letter + newline + day number). Month name removed. Weather block below: emoji at 14px, temp at 11px `onSurfaceMed`.
+
+**Monthly:** Show label only at month boundary (`prevTs.month != ts.month`). Format: `DateFormat('MMM').format(ts)` → "Feb", "Mar". Previous "MMM d" was too busy and too small to read.
+
+**Vertical centering:** `SideTitleWidget(space: s)` where `s = (reservedSize - contentHeight) / 2`. Values: intraday=6, weekly=10, monthly=8.
+
+**Separator:** 1px `Divider(color: p.onSurfaceSubtle)` at the bottom of the chart `Column`, separating x-axis from the scrollable content below.
