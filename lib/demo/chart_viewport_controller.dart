@@ -121,6 +121,40 @@ class ChartViewportController extends ChangeNotifier {
   /// Latest CPS score (last point in daily data).
   double get latestCps => _dailyData.last.score;
 
+  /// Date of the most recent data point (demo "present day").
+  DateTime get latestDate => _dailyData.last.timestamp;
+
+  /// Index within [visibleSpots] that corresponds to [selectedDate], or null
+  /// if there is no selection or it falls outside the visible window.
+  int? get selectedDateSpotIndex {
+    final date = _selectedDate;
+    if (date == null) return null;
+    final localX = localXForDate(date);
+    if (localX == null) return null;
+    final spots = visibleSpots;
+    int best = -1;
+    double bestDiff = double.infinity;
+    for (int i = 0; i < spots.length; i++) {
+      final diff = (spots[i].x - localX).abs();
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        best = i;
+      }
+    }
+    return best == -1 ? null : best;
+  }
+
+  /// Selects the latest (present) date if it falls within the current visible
+  /// viewport; otherwise clears the selection. Call on initial load and
+  /// whenever an inspection row selection is dismissed.
+  void autoSelectPresentIfVisible() {
+    if (localXForDate(latestDate) != null) {
+      selectDate(latestDate);
+    } else {
+      selectDate(null);
+    }
+  }
+
   /// CPS change over the last 7 data days (positive = improving).
   double? get recentTrendDelta {
     if (_dailyData.length < 8) return null;

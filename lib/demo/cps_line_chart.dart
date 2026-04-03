@@ -194,10 +194,13 @@ class _CpsLineChartState extends State<CpsLineChart> {
       effectiveMaxY = 100;
     }
 
-    // Guard against stale index after zoom change shrinks the spots list
-    final tipIdx = (_tooltipSpotIndex != null && _tooltipSpotIndex! < spots.length)
+    // Guard against stale index after zoom change shrinks the spots list.
+    // Fall back to the auto-selected present day when no manual tap is active.
+    final manualTip = (_tooltipSpotIndex != null && _tooltipSpotIndex! < spots.length)
         ? _tooltipSpotIndex
         : null;
+    final autoTip = c.selectedDateSpotIndex;
+    final tipIdx = manualTip ?? autoTip;
     final barData = LineChartBarData(
       spots: spots,
       isCurved: false,

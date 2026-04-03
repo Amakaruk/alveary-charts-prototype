@@ -1,6 +1,70 @@
 import 'package:flutter/material.dart';
 
 // ---------------------------------------------------------------------------
+// Hive profile (static mock — in production returned by the server)
+// ---------------------------------------------------------------------------
+
+class HiveProfile {
+  final String name;
+  final String apiary;
+  final String hiveType;
+  final String colonyType;
+  final String queenStatus;
+  final String queenAge;
+  final String varroaStatus;
+  final String population;
+  final String broodPattern;
+  final List<String> equipment;
+
+  const HiveProfile({
+    required this.name,
+    required this.apiary,
+    required this.hiveType,
+    required this.colonyType,
+    required this.queenStatus,
+    required this.queenAge,
+    required this.varroaStatus,
+    required this.population,
+    required this.broodPattern,
+    required this.equipment,
+  });
+}
+
+const mockHiveProfile = HiveProfile(
+  name: 'Hive A',
+  apiary: 'Meadow View Apiary',
+  hiveType: 'Langstroth 10-frame',
+  colonyType: 'Italian (Apis mellifera ligustica)',
+  queenStatus: 'Laying — confirmed May 2024',
+  queenAge: '14 months',
+  varroaStatus: '1.2 mites / 100 bees (last wash: May 28)',
+  population: 'Strong — approx. 55,000–60,000',
+  broodPattern: 'Solid, low-disease pattern on 7 of 10 frames',
+  equipment: [
+    '2× medium honey supers (both active)',
+    'Screened bottom board',
+    'Entrance reducer removed for summer',
+    '8-frame queen excluder',
+  ],
+);
+
+const mockAiSummaryTeaser =
+    'Colony thriving at peak nectar flow — CPS up 6 pts this week.';
+
+const mockAiSummaryParagraph =
+    'Your colony is in excellent condition heading into the height of the '
+    'summer nectar flow. The CPS trend has been consistently positive over '
+    'the past seven days, driven by strong forager activity and a solid, '
+    'disease-free brood pattern across most frames. Varroa levels remain well '
+    'below the action threshold. Both honey supers are actively being worked, '
+    'and at the current fill rate you should expect to assess harvest readiness '
+    'within 10–14 days. The main watchpoints for the coming week are swarm '
+    'readiness — the colony is populous and the queen is healthy, so frame '
+    'congestion is worth monitoring — and ensuring adequate ventilation during '
+    'the forecast warm spell. No immediate interventions are required; your '
+    'next scheduled inspection is on track.';
+
+// ---------------------------------------------------------------------------
 // Task
 // ---------------------------------------------------------------------------
 

@@ -25,6 +25,7 @@ class _ChartDemoScreenState extends State<ChartDemoScreen>
   void initState() {
     super.initState();
     _controller = ChartViewportController(vsync: this);
+    _controller.autoSelectPresentIfVisible();
   }
 
   @override

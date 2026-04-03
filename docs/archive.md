@@ -1,5 +1,29 @@
 # Archive
 
+## ✓ Today Timeline Header — completed 2026-04-03
+
+Implemented across `hive_task.dart`, `inspection_table.dart`, and `pubspec.yaml`:
+- `hive_task.dart`: added `HiveProfile` class + `mockHiveProfile`, `mockAiSummaryTeaser`, `mockAiSummaryParagraph`
+- `pubspec.yaml`: registered `assets/beehive.jpg`
+- `inspection_table.dart`:
+  - `_TodayHeader` — accent-bordered row at top of list; shows TODAY / date / teaser / Profile chevron; tappable
+  - `_showTodayDetail(context)` — platform-adaptive: side sheet (≥600px, auto-opens on first render), bottom sheet (<600px, tap only)
+  - `_TodayDetailContent` — hero image (220px, BoxFit.cover) + AI paragraph + Colony / Health / Equipment profile sections
+  - `_TodayDetailSideSheet` / `_TodayDetailBottomSheet` — wraps content in palette-colored containers with correct border radii
+  - `_autoOpenedToday` flag in `_InspectionTableState` — fires `addPostFrameCallback` once on wide screens
+
+---
+
+## ✓ Default Present Day Selection — completed 2026-04-03
+
+Implemented across three files:
+- `chart_viewport_controller.dart`: added `latestDate` (last daily data point), `selectedDateSpotIndex` (resolves the selected date to a `visibleSpots` index), and `autoSelectPresentIfVisible()` (calls `selectDate(latestDate)` when visible, else `selectDate(null)`)
+- `chart_demo_screen.dart`: calls `_controller.autoSelectPresentIfVisible()` immediately after controller creation
+- `inspection_table.dart`: `onClose` callback now calls `autoSelectPresentIfVisible()` instead of `selectDate(null)`
+- `cps_line_chart.dart`: `tipIdx` falls back to `c.selectedDateSpotIndex` when no manual chart tap is active, showing the tooltip at the present day
+
+---
+
 ## ✓ Timeline List Formatting — completed 2026-04-03
 
 Implemented in `inspection_table.dart`:
