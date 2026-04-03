@@ -13,9 +13,12 @@ class ZoomToggle extends StatelessWidget {
   });
 
   static String _label(ZoomLevel z) => switch (z) {
-        ZoomLevel.intraday => 'Intraday',
-        ZoomLevel.weekly => 'Weekly',
-        ZoomLevel.monthly => 'Monthly',
+        ZoomLevel.oneDay     => '1D',
+        ZoomLevel.sevenDay   => '1W',
+        ZoomLevel.thirtyDay  => '1M',
+        ZoomLevel.threeMonth => '3M',
+        ZoomLevel.sixMonth   => '6M',
+        ZoomLevel.oneYear    => '1Y',
       };
 
   @override

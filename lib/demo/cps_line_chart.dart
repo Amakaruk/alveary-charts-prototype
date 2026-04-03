@@ -1,3 +1,5 @@
+import 'dart:math' show min, max;
+import 'dart:ui' show PointerDeviceKind;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -6,16 +8,13 @@ import 'package:intl/intl.dart';
 import 'app_colors.dart';
 import 'chart_viewport_controller.dart';
 import 'cps_mock_data.dart';
-import 'weather_data.dart';
 
 class CpsLineChart extends StatefulWidget {
   final ChartViewportController controller;
-  final List<InspectionLog> logs;
 
   const CpsLineChart({
     super.key,
     required this.controller,
-    required this.logs,
   });
 
   @override
@@ -26,6 +25,8 @@ class _CpsLineChartState extends State<CpsLineChart> {
   double _chartWidth = 0;
   double _lastTickBucket = -1;
   int? _tooltipSpotIndex;
+  // Accumulated x position for trackpad pan-zoom simulation.
+  double _trackpadPanX = 0;
 
   @override
   void initState() {
@@ -41,9 +42,12 @@ class _CpsLineChartState extends State<CpsLineChart> {
 
   void _onViewportChanged() {
     final step = switch (widget.controller.zoom) {
-      ZoomLevel.intraday => 1.0,
-      ZoomLevel.weekly => 7 / 30.0,
-      ZoomLevel.monthly => 1.0,
+      ZoomLevel.oneDay     => 5.0,
+      ZoomLevel.sevenDay   => 1.0,
+      ZoomLevel.thirtyDay  => 7.0,
+      ZoomLevel.threeMonth => 14.0,
+      ZoomLevel.sixMonth   => 30.0,
+      ZoomLevel.oneYear    => 30.0,
     };
     final bucket = (widget.controller.viewportStart / step).floor().toDouble();
     if (bucket != _lastTickBucket) {
@@ -64,32 +68,48 @@ class _CpsLineChartState extends State<CpsLineChart> {
   }
 
   // Returns a label string if this x position should show a label, else null.
+  // Two-line labels use '\n' as separator (split and rendered by getTitlesWidget).
   String? _xLabel(double x, ChartViewportController c) {
     final absIdx = c.viewportStart.floor() + x.toInt();
     final ts = c.timestampAt(absIdx);
 
-    if (c.zoom == ZoomLevel.intraday) {
-      // Show label every 3 hours to avoid crowding.
-      if (ts.hour % 3 != 0) return null;
-      if (absIdx > 0) {
-        final prevTs = c.timestampAt(absIdx - 1);
-        if (prevTs.hour == ts.hour) return null; // deduplicate within same hour
-      }
-      return DateFormat('ha').format(ts).toLowerCase(); // "6am", "12pm"
-    }
+    switch (c.zoom) {
+      case ZoomLevel.oneDay:
+        // Readings fall ~25 min apart. Label those within 15 min of a whole
+        // even-hour mark — at most one reading lands in each window.
+        // Show the rounded hour, not the actual reading time.
+        if (ts.hour % 2 != 0 || ts.minute > 14) return null;
+        return '${ts.hour.toString().padLeft(2, '0')}:00';
 
-    if (c.zoom == ZoomLevel.monthly) {
-      // Show label only at month boundaries.
-      if (absIdx == 0) return DateFormat('MMM').format(ts);
-      final prevTs = c.timestampAt(absIdx - 1);
-      if (prevTs.month == ts.month) return null;
-      return DateFormat('MMM').format(ts); // "Feb", "Mar"
-    }
+      case ZoomLevel.sevenDay:
+        // One label per day; suppress right-edge cap point.
+        if (x >= c.visiblePoints) return null;
+        return '${DateFormat("EEE").format(ts)}\n${ts.day}'; // "Mon\n3"
 
-    // Weekly: anchor to viewport centre, show every day.
-    final centerAbs = c.viewportStart.floor() + c.visiblePoints ~/ 2;
-    if ((absIdx - centerAbs) % 1 != 0) return null;
-    return DateFormat('EEEEE\nd').format(ts); // "M\n3"
+      case ZoomLevel.thirtyDay:
+        // Round-day anchors give ~weekly cadence → 5 labels per 30-day window.
+        const labelDays = {1, 8, 15, 22, 29};
+        if (!labelDays.contains(ts.day)) return null;
+        return '${DateFormat("MMM").format(ts)}\n${ts.day}'; // "Jan\n8"
+
+      case ZoomLevel.threeMonth:
+        // 1st and 15th of each month → ~6 labels per 90-day window.
+        if (ts.day != 1 && ts.day != 15) return null;
+        if (ts.month == 1 && ts.day == 1) return 'Jan\n${ts.year}';
+        return '${DateFormat("MMM").format(ts)}\n${ts.day}'; // "Mar\n15"
+
+      case ZoomLevel.sixMonth:
+        // 1st of each month → ~6 labels per 180-day window.
+        if (ts.day != 1) return null;
+        if (ts.month == 1) return 'Jan\n${ts.year}';
+        return DateFormat('MMM').format(ts);
+
+      case ZoomLevel.oneYear:
+        // 1st of each month → 12 labels per year.
+        if (ts.day != 1) return null;
+        if (ts.month == 1) return 'Jan\n${ts.year}';
+        return DateFormat('MMM').format(ts);
+    }
   }
 
   @override
@@ -98,7 +118,29 @@ class _CpsLineChartState extends State<CpsLineChart> {
     return LayoutBuilder(
       builder: (context, constraints) {
         _chartWidth = constraints.maxWidth;
-        return GestureDetector(
+        return Listener(
+          // Trackpad two-finger pan on native macOS/iOS sends PointerPanZoom
+          // events. HorizontalDragGestureRecognizer would try to synthesize a
+          // PointerMoveEvent with kind=trackpad, which Flutter asserts against.
+          // Handle these directly here instead.
+          onPointerPanZoomStart: (e) {
+            _trackpadPanX = e.localPosition.dx;
+            setState(() => _tooltipSpotIndex = null);
+            widget.controller.onDragStart(_trackpadPanX);
+          },
+          onPointerPanZoomUpdate: (e) {
+            _trackpadPanX += e.panDelta.dx;
+            widget.controller.onDragUpdate(_trackpadPanX, _chartWidth);
+          },
+          onPointerPanZoomEnd: (e) =>
+              widget.controller.onDragEnd(0, _chartWidth),
+          child: GestureDetector(
+          supportedDevices: {
+            PointerDeviceKind.touch,
+            PointerDeviceKind.mouse,
+            PointerDeviceKind.stylus,
+            PointerDeviceKind.invertedStylus,
+          },
           onTapUp: _onTapUp,
           onHorizontalDragStart: (d) {
             setState(() => _tooltipSpotIndex = null);
@@ -114,7 +156,7 @@ class _CpsLineChartState extends State<CpsLineChart> {
             listenable: widget.controller,
             builder: (context, _) {
               final overscroll = widget.controller.overscrollPixels;
-              Widget chart = _buildChart(widget.controller, widget.logs, palette);
+              Widget chart = _buildChart(widget.controller, palette);
               if (overscroll > 0) {
                 chart = ClipRect(
                   child: Transform.translate(
@@ -126,17 +168,32 @@ class _CpsLineChartState extends State<CpsLineChart> {
               return chart;
             },
           ),
+          ),
         );
       },
     );
   }
 
-  Widget _buildChart(
-      ChartViewportController c, List<InspectionLog> logs, AppPalette p) {
+  Widget _buildChart(ChartViewportController c, AppPalette p) {
     final spots = c.visibleSpots;
-    final isIntraday = c.zoom == ZoomLevel.intraday;
-    final lastX = spots.isNotEmpty ? spots.last.x : 0.0;
-    final markers = c.visibleLogMarkers(logs);
+    final selX = c.selectedDate != null ? c.localXForDate(c.selectedDate!) : null;
+
+    // Dynamic Y range: pad 20% above and below the visible data on all zoom levels.
+    const yPadFraction = 0.20;
+    final double effectiveMinY;
+    final double effectiveMaxY;
+    if (spots.isNotEmpty) {
+      final dataMin = spots.fold(double.infinity,        (m, s) => min(m, s.y));
+      final dataMax = spots.fold(double.negativeInfinity, (m, s) => max(m, s.y));
+      final range = (dataMax - dataMin).clamp(1.0, double.infinity);
+      final pad = range * yPadFraction;
+      effectiveMinY = dataMin - pad;
+      effectiveMaxY = dataMax + pad;
+    } else {
+      effectiveMinY = 0;
+      effectiveMaxY = 100;
+    }
+
     // Guard against stale index after zoom change shrinks the spots list
     final tipIdx = (_tooltipSpotIndex != null && _tooltipSpotIndex! < spots.length)
         ? _tooltipSpotIndex
@@ -164,10 +221,12 @@ class _CpsLineChartState extends State<CpsLineChart> {
     final chart = LineChart(
       duration: Duration.zero,
       LineChartData(
-        minX: 0,
-        maxX: c.visiblePoints.toDouble(),
-        minY: 0,
-        maxY: 100,
+        minX: (c.zoom == ZoomLevel.sevenDay || c.zoom == ZoomLevel.oneDay) ? -0.5 : 0,
+        maxX: (c.zoom == ZoomLevel.sevenDay || c.zoom == ZoomLevel.oneDay)
+            ? c.visiblePoints.toDouble() - 0.5
+            : c.visiblePoints.toDouble(),
+        minY: effectiveMinY,
+        maxY: effectiveMaxY,
         clipData: const FlClipData.all(),
         lineBarsData: [barData],
         gridData: const FlGridData(show: false),
@@ -178,32 +237,34 @@ class _CpsLineChartState extends State<CpsLineChart> {
           rightTitles: const AxisTitles(
               sideTitles: SideTitles(showTitles: false, reservedSize: 0)),
           topTitles: const AxisTitles(
-              sideTitles: SideTitles(showTitles: false)),
+              sideTitles: SideTitles(showTitles: false, reservedSize: 36)),
           bottomTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
-              reservedSize: _xReservedSize(c),
+              reservedSize: _xReservedSize,
               interval: 1,
               getTitlesWidget: (v, meta) {
+                if (v < 0) return const SizedBox.shrink(); // ghost left point
                 final label = _xLabel(v, c);
                 if (label == null) return const SizedBox.shrink();
-                if (c.zoom == ZoomLevel.weekly) {
-                  return _WeatherAxisLabel(
-                    meta: meta,
-                    dateLabel: label,
-                    palette: p,
-                    space: _xTitleSpace(c),
-                    weather: c.weatherForDate(
-                        c.timestampAt(c.viewportStart.floor() + v.toInt())),
-                  );
-                }
+                final lines = label.split('\n');
                 return SideTitleWidget(
                   meta: meta,
-                  space: _xTitleSpace(c),
-                  child: Text(
-                    label,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: p.onSurfaceMed, fontSize: 11),
+                  space: 0,
+                  child: Container(
+                    height: _xReservedSize,
+                    alignment: Alignment.center,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: lines
+                          .map((l) => Text(
+                                l,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                    color: p.onSurfaceMed, fontSize: 11),
+                              ))
+                          .toList(),
+                    ),
                   ),
                 );
               },
@@ -211,47 +272,20 @@ class _CpsLineChartState extends State<CpsLineChart> {
           ),
         ),
         extraLinesData: ExtraLinesData(
-          horizontalLines: [
-            HorizontalLine(
-              y: 98,
-              color: Colors.transparent,
-              label: HorizontalLineLabel(
-                show: true,
-                alignment: Alignment.topLeft,
-                padding: const EdgeInsets.only(left: 6, bottom: 2),
-                style: TextStyle(
-                    color: p.onSurfaceLow,
-                    fontSize: 9,
-                    fontWeight: FontWeight.w500),
-                labelResolver: (_) => '100',
-              ),
-            ),
-            HorizontalLine(
-              y: 2,
-              color: Colors.transparent,
-              label: HorizontalLineLabel(
-                show: true,
-                alignment: Alignment.bottomLeft,
-                padding: const EdgeInsets.only(left: 6, top: 2),
-                style: TextStyle(
-                    color: p.onSurfaceLow,
-                    fontSize: 9,
-                    fontWeight: FontWeight.w500),
-                labelResolver: (_) => '0',
-              ),
-            ),
-          ],
-          verticalLines: markers.map((m) {
-            return VerticalLine(
-              x: m.x,
-              color: p.onSurface.withValues(alpha: 0.15),
-              strokeWidth: 1,
-            );
-          }).toList(),
+          verticalLines: selX != null
+              ? [VerticalLine(
+                  x: selX,
+                  color: p.onSurfaceMed,
+                  strokeWidth: 1,
+                  dashArray: [4, 4],
+                )]
+              : [],
         ),
         lineTouchData: LineTouchData(
           handleBuiltInTouches: false,
           touchTooltipData: LineTouchTooltipData(
+            fitInsideVertically: true,
+            fitInsideHorizontally: true,
             getTooltipColor: (_) => p.surface,
             getTooltipItems: (touchedSpots) => touchedSpots.map((s) {
               final absIdx = c.viewportStart.floor() + s.spotIndex;
@@ -278,22 +312,6 @@ class _CpsLineChartState extends State<CpsLineChart> {
         showingTooltipIndicators: tipIdx != null
             ? [ShowingTooltipIndicators([LineBarSpot(barData, 0, spots[tipIdx])])]
             : [],
-        rangeAnnotations: isIntraday
-            ? RangeAnnotations(
-                verticalRangeAnnotations: [
-                  VerticalRangeAnnotation(
-                    x1: -0.5,
-                    x2: 0,
-                    color: kNightBlue.withValues(alpha: 0.6),
-                  ),
-                  VerticalRangeAnnotation(
-                    x1: lastX,
-                    x2: lastX + 0.5,
-                    color: kNightBlue.withValues(alpha: 0.6),
-                  ),
-                ],
-              )
-            : null,
       ),
     );
     return Column(
@@ -305,70 +323,10 @@ class _CpsLineChartState extends State<CpsLineChart> {
     );
   }
 
-  double _xReservedSize(ChartViewportController c) => switch (c.zoom) {
-        ZoomLevel.intraday => 26,
-        ZoomLevel.weekly   => 72,
-        ZoomLevel.monthly  => 30,
-      };
-
-  // Space from chart boundary to title widget — centers content in reserved area.
-  // Intraday: ~14px text in 26px → (26-14)/2 = 6
-  // Monthly:  ~14px text in 30px → (30-14)/2 = 8
-  // Weekly:   ~52px column in 72px → (72-52)/2 = 10
-  double _xTitleSpace(ChartViewportController c) => switch (c.zoom) {
-        ZoomLevel.intraday => 6,
-        ZoomLevel.weekly   => 10,
-        ZoomLevel.monthly  => 8,
-      };
+  // Fixed x-axis reserved height — same for all zoom levels so the chart
+  // plot area never changes size when switching timescales.
+  // Two lines at fontSize 11 ≈ 26px, centered inside 46px gives ~10px
+  // padding above and below. Single-line labels get the same row height.
+  static const double _xReservedSize = 46;
 }
 
-// ---------------------------------------------------------------------------
-// Weekly x-axis label: date + weather icon + high/low temp
-// ---------------------------------------------------------------------------
-
-class _WeatherAxisLabel extends StatelessWidget {
-  final TitleMeta meta;
-  final String dateLabel;
-  final WeatherDay? weather;
-  final AppPalette palette;
-
-  final double space;
-
-  const _WeatherAxisLabel({
-    required this.meta,
-    required this.dateLabel,
-    required this.palette,
-    required this.weather,
-    this.space = 10,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return SideTitleWidget(
-      meta: meta,
-      space: space,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            dateLabel,
-            textAlign: TextAlign.center,
-            style: TextStyle(color: palette.onSurfaceMed, fontSize: 11),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            weather != null ? weatherEmoji(weather!.condition) : '—',
-            style: const TextStyle(fontSize: 14, height: 1),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            weather != null
-                ? '${weather!.highC}°/${weather!.lowC}°'
-                : '',
-            style: TextStyle(color: palette.onSurfaceMed, fontSize: 11),
-          ),
-        ],
-      ),
-    );
-  }
-}

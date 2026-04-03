@@ -30,13 +30,18 @@ class InspectionLog {
 List<CpsReading> generateIntradayData() {
   final rng = Random(42);
   final readings = <CpsReading>[];
-  var time = DateTime(2024, 6, 15, 6, 30);
-  const baseline = 84.0; // peak summer day
 
-  while (time.isBefore(DateTime(2024, 6, 15, 20, 0))) {
-    final score = _intradayScore(time, baseline, rng);
-    readings.add(CpsReading(timestamp: time, score: score));
-    time = time.add(Duration(minutes: 25 + rng.nextInt(10) - 5));
+  // 7 days: Jun 9–15 2024. Baseline rises 77→84 toward the peak summer day.
+  for (int dayOffset = -6; dayOffset <= 0; dayOffset++) {
+    final date = DateTime(2024, 6, 15 + dayOffset);
+    final baseline = 77.0 + (dayOffset + 6) * (7.0 / 6.0);
+    var time = DateTime(date.year, date.month, date.day, 6, 30);
+    final endTime = DateTime(date.year, date.month, date.day, 20, 0);
+    while (time.isBefore(endTime)) {
+      readings.add(CpsReading(
+          timestamp: time, score: _intradayScore(time, baseline, rng)));
+      time = time.add(Duration(minutes: 25 + rng.nextInt(10) - 5));
+    }
   }
   return readings;
 }
@@ -51,52 +56,39 @@ double _intradayScore(DateTime t, double baseline, Random rng) {
 }
 
 // ---------------------------------------------------------------------------
-// Daily averages — 180 days starting Dec 19 2023, ending Jun 15 2024
-// Seasonal arc: winter low (~45) → spring buildup → summer peak (~84)
+// Daily averages — 365 days starting Jun 15 2023, ending Jun 15 2024
+// Seasonal arc: summer peak (84) → winter low (44) → summer peak (84)
 // ---------------------------------------------------------------------------
 
 List<CpsReading> generateDailyAverages() {
   final readings = <CpsReading>[];
-  final startDate = DateTime(2023, 12, 19);
+  final startDate = DateTime(2023, 6, 15);
   final rng = Random(42);
-
-  for (int d = 0; d < 180; d++) {
+  const days = 365;
+  for (int d = 0; d < days; d++) {
     final date = startDate.add(Duration(days: d));
-    final t = d / 179.0; // 0 = Dec 19, 1 = Jun 15
-
-    // Seasonal arc: slow winter rise, steep spring, peak in June
-    final base = 44.0 + 40.0 * _seasonCurve(t);
-
-    // ~14-day undulation (foraging cycles, brood pulses) ±7
-    final undulation = 7.0 * sin(t * 14 * pi);
-
-    // Daily noise ±6
+    final t = d / days.toDouble();
+    final base = 64.0 + 20.0 * cos(t * 2 * pi);
+    final undulation = 7.0 * sin(d / 14.0 * pi);
     final noise = (rng.nextDouble() - 0.5) * 12;
-
-    // Narrative shocks matching the log events
     final shock = _narrativeShock(date);
-
     final score = (base + undulation + noise + shock).clamp(28.0, 95.0);
     readings.add(CpsReading(timestamp: date, score: score));
   }
   return readings;
 }
 
-// Slow start, accelerates through spring, plateaus near peak
-double _seasonCurve(double t) {
-  if (t < 0.5) return 2 * t * t;
-  return 1.0 - pow(-2 * t + 2, 2) / 2;
-}
-
 // Dips tied to weather/event log entries
 double _narrativeShock(DateTime d) {
-  // Polar vortex Feb 4–9: hard dip
-  if (d.month == 2 && d.day >= 4 && d.day <= 9)  return -14.0;
-  // Late frost Mar 14–17
+  // 2023 summer/fall
+  if (d.year == 2023 && d.month == 7 && d.day >= 15 && d.day <= 20) return -7.0;
+  if (d.year == 2023 && d.month == 8 && d.day >= 10 && d.day <= 16) return -8.0;
+  if (d.year == 2023 && d.month == 9 && d.day >= 5  && d.day <= 10) return -10.0;
+  if (d.year == 2023 && d.month == 10 && d.day >= 15 && d.day <= 20) return -6.0;
+  // 2024 winter/spring (matching log entries)
+  if (d.month == 2 && d.day >= 4  && d.day <= 9)  return -14.0;
   if (d.month == 3 && d.day >= 14 && d.day <= 17) return -10.0;
-  // Post-swarm split recovery Apr 1–6
   if (d.month == 4 && d.day >= 1  && d.day <= 6)  return -8.0;
-  // Heat wave May 19–23
   if (d.month == 5 && d.day >= 19 && d.day <= 23) return -9.0;
   return 0.0;
 }

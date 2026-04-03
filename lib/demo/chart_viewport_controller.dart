@@ -1,25 +1,24 @@
 import 'package:flutter/widgets.dart';
 import 'cps_mock_data.dart';
-import 'weather_data.dart';
 import 'package:fl_chart/fl_chart.dart';
 
-enum ZoomLevel { intraday, weekly, monthly }
+enum ZoomLevel { oneDay, sevenDay, thirtyDay, threeMonth, sixMonth, oneYear }
 
 class ChartViewportController extends ChangeNotifier {
   // -------------------------------------------------------------------------
   // Data
   // -------------------------------------------------------------------------
-  late List<CpsReading> _intradayData;
   late List<CpsReading> _dailyData;
-  late Map<String, WeatherDay> _weather;
+  late List<CpsReading> _intradayData;
+  late final int _intradayPointsPerDay;
 
   List<CpsReading> get _activeData =>
-      _zoom == ZoomLevel.intraday ? _intradayData : _dailyData;
+      _zoom == ZoomLevel.oneDay ? _intradayData : _dailyData;
 
   // -------------------------------------------------------------------------
   // State
   // -------------------------------------------------------------------------
-  ZoomLevel _zoom = ZoomLevel.monthly;
+  ZoomLevel _zoom = ZoomLevel.thirtyDay;
   double _viewportStart = 0;
   late int _visiblePoints;
 
@@ -33,6 +32,27 @@ class ChartViewportController extends ChangeNotifier {
 
   double get progress =>
       maxViewportStart == 0 ? 1.0 : _viewportStart / maxViewportStart;
+
+  // -------------------------------------------------------------------------
+  // Selected date (drives dashed marker line on chart)
+  // -------------------------------------------------------------------------
+  DateTime? _selectedDate;
+  DateTime? get selectedDate => _selectedDate;
+
+  void selectDate(DateTime? date) {
+    _selectedDate = date;
+    notifyListeners();
+  }
+
+  /// Viewport-relative x coordinate for [date], or null if outside the
+  /// visible window. Matches fl_chart's x coordinate system.
+  double? localXForDate(DateTime date) {
+    final idx = _indexForDate(_activeData, date);
+    if (idx == null) return null;
+    final localX = idx.toDouble() - _viewportStart.floor();
+    if (localX < -0.5 || localX > _visiblePoints + 0.5) return null;
+    return localX;
+  }
 
   // -------------------------------------------------------------------------
   // Overscroll (right-edge rubber band)
@@ -51,10 +71,17 @@ class ChartViewportController extends ChangeNotifier {
   Animation<double>? _bounceAnimation;
 
   ChartViewportController({required TickerProvider vsync}) {
-    _intradayData = generateIntradayData();
-    _dailyData = generateDailyAverages();
-    _weather = generateWeatherData(_dailyData.map((r) => r.timestamp).toList());
-    _visiblePoints = 30; // monthly default
+    _dailyData = generateDailyAverages();      // 365 days
+    _intradayData = generateIntradayData();    // ~7 days of readings
+    // Count readings in the last day of intraday data
+    final lastDay = _intradayData.last.timestamp;
+    _intradayPointsPerDay = _intradayData.where((r) =>
+      r.timestamp.year == lastDay.year &&
+      r.timestamp.month == lastDay.month &&
+      r.timestamp.day == lastDay.day
+    ).length;
+    _zoom = ZoomLevel.thirtyDay;
+    _visiblePoints = 30; // thirtyDay default
     _viewportStart = maxViewportStart;
 
     _animController = AnimationController(
@@ -79,12 +106,15 @@ class ChartViewportController extends ChangeNotifier {
   // -------------------------------------------------------------------------
   List<FlSpot> get visibleSpots {
     final start = _viewportStart.floor();
+    // For daily zoom, include one extra point left of the viewport so the line
+    // enters from the left edge rather than starting abruptly at x=0.
+    final leftExtra = ((_zoom == ZoomLevel.sevenDay || _zoom == ZoomLevel.oneDay) && start > 0) ? 1 : 0;
     final end = (start + _visiblePoints + 1).clamp(0, totalPoints);
-    final slice = _activeData.sublist(start, end);
+    final slice = _activeData.sublist(start - leftExtra, end);
     return slice
         .asMap()
         .entries
-        .map((e) => FlSpot(e.key.toDouble(), e.value.score))
+        .map((e) => FlSpot((e.key - leftExtra).toDouble(), e.value.score))
         .toList();
   }
 
@@ -96,10 +126,6 @@ class ChartViewportController extends ChangeNotifier {
     if (_dailyData.length < 8) return null;
     return _dailyData.last.score - _dailyData[_dailyData.length - 8].score;
   }
-
-  /// Weather for a given date, or null if unavailable.
-  WeatherDay? weatherForDate(DateTime date) =>
-      _weather['${date.year}-${date.month}-${date.day}'];
 
   /// Returns the timestamp for the data point at absolute index [i].
   DateTime timestampAt(int i) {
@@ -183,16 +209,20 @@ class ChartViewportController extends ChangeNotifier {
 
     _zoom = zoom;
     _visiblePoints = switch (zoom) {
-      ZoomLevel.intraday => _intradayData.length,
-      ZoomLevel.weekly => 7,
-      ZoomLevel.monthly => 30,
+      ZoomLevel.oneDay     => _intradayPointsPerDay,
+      ZoomLevel.sevenDay   => 7,
+      ZoomLevel.thirtyDay  => 30,
+      ZoomLevel.threeMonth => 90,
+      ZoomLevel.sixMonth   => 180,
+      ZoomLevel.oneYear    => 365,
     };
 
-    // Scroll to the preserved centre date in the new zoom level.
-    _viewportStart = maxViewportStart; // default to most recent
+    // Preserve the centre date across zoom changes.
+    _viewportStart = maxViewportStart;
     final idx = _indexForDate(_activeData, centreDate);
     if (idx != null) {
-      final centred = (idx - _visiblePoints / 2).clamp(0.0, maxViewportStart);
+      var centred = (idx - _visiblePoints / 2).clamp(0.0, maxViewportStart);
+      if (zoom == ZoomLevel.sevenDay || zoom == ZoomLevel.oneDay) centred = centred.roundToDouble();
       _viewportStart = centred;
     }
 
@@ -206,25 +236,24 @@ class ChartViewportController extends ChangeNotifier {
     _overscrollPixels = 0;
     _bounceController.stop();
 
-    // If we're in intraday mode, switch to weekly first.
-    if (_zoom == ZoomLevel.intraday) {
-      _zoom = ZoomLevel.weekly;
-      _visiblePoints = 7;
-    }
-
     final idx = _indexForDate(_activeData, date);
     if (idx == null) return;
 
     final target =
-        (idx - _visiblePoints / 2).clamp(0.0, maxViewportStart);
-    _animateTo(target);
+        (idx - _visiblePoints / 2).clamp(0.0, (totalPoints - 1).toDouble());
+    _animateTo(target, clampToMax: false);
   }
 
   // -------------------------------------------------------------------------
   // Internal helpers
   // -------------------------------------------------------------------------
-  void _animateTo(double target) {
-    final clamped = target.clamp(0.0, maxViewportStart);
+  void _animateTo(double target, {bool clampToMax = true}) {
+    // Weekly/intraday snaps to whole-day boundaries so one day is always dead-centre.
+    final snapped = (_zoom == ZoomLevel.sevenDay || _zoom == ZoomLevel.oneDay)
+        ? target.roundToDouble()
+        : target;
+    final maxBound = clampToMax ? maxViewportStart : (totalPoints - 1).toDouble();
+    final clamped = snapped.clamp(0.0, maxBound);
     _animController.stop();
     _animation = Tween<double>(begin: _viewportStart, end: clamped).animate(
       CurvedAnimation(parent: _animController, curve: Curves.easeOutCubic),
@@ -253,10 +282,9 @@ class ChartViewportController extends ChangeNotifier {
   // -------------------------------------------------------------------------
 
   /// Returns the local x positions (0..visiblePoints) of [logs] that fall
-  /// within the current viewport. Only meaningful in weekly/monthly zoom.
+  /// within the current viewport.
   List<({double x, InspectionLog log})> visibleLogMarkers(
       List<InspectionLog> logs) {
-    if (_zoom == ZoomLevel.intraday) return [];
     final result = <({double x, InspectionLog log})>[];
     for (final log in logs) {
       final idx = _indexForDate(_dailyData, log.date);
